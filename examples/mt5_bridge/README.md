@@ -28,7 +28,6 @@ MT5 EA executes trade with ATR-based SL/TP + Asymmetric Breakeven
 |---|---|
 | `pooyer_bridge.py` | Flask server — loads Kronos, serves predictions via HTTP |
 | `POOYER.mq5` | MT5 Expert Advisor — sends OHLCV bars, receives and executes signals |
-| `pooyer_dashboard.html` | Live monitoring dashboard (open in any browser) |
 | `requirements_bridge.txt` | Python dependencies for the bridge |
 
 ## Quick Start
@@ -58,8 +57,8 @@ Open `pooyer_dashboard.html` in any browser for live signal monitoring.
 
 ### POST /predict
 ```json
-// Request
-{"symbol": "XAUUSD", "bars": [{"open":2340.5,"high":2341.2,"low":2339.8,"close":2340.9,"volume":1200}, ...]}
+// Request — "freq" is optional pandas offset alias (default "1min"); match your chart timeframe
+{"symbol": "XAUUSD", "freq": "1min", "bars": [{"open":2340.5,"high":2341.2,"low":2339.8,"close":2340.9,"volume":1200}, ...]}
 
 // Response
 {

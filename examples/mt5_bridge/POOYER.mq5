@@ -135,6 +135,11 @@ void OnTick()
    Log(StringFormat("Kronos: %s conf=%.2f SL=%.5f TP=%.5f ATR=%.5f delta=%+.5f",
        sig.direction, sig.confidence, sig.sl_pips, sig.tp_pips, sig.atr, sig.delta_pips));
 
+   if(sig.direction == "FLAT") {
+      Log("Kronos: FLAT signal — no trade");
+      return;
+   }
+
    if(sig.confidence < MinConfidence) {
       Log(StringFormat("Low confidence %.2f < %.2f — skip", sig.confidence, MinConfidence));
       return;
@@ -209,7 +214,8 @@ bool ParseSignal(const string &json, KronosSignal &sig)
    sig.forecast_end = ExtractDouble(json, "forecast_end");
    sig.delta_pips   = ExtractDouble(json, "delta_pips");
 
-   if(sig.direction == "" || sig.direction == "FLAT") return false;
+   if(sig.direction == "") return false;
+   if(sig.direction == "FLAT") { sig.valid = true; return true; }
    if(sig.sl_pips <= 0 || sig.tp_pips <= 0) return false;
    sig.valid = true;
    return true;
@@ -260,7 +266,8 @@ void ExecuteTrade(ENUM_ORDER_TYPE type, const KronosSignal &sig)
    }
 
    double lots = CalcLots(sl_dist);
-   string comment = TradeComment + StringFormat("|c=%.2f|atr=%.5f", sig.confidence, sig.atr);
+   string full_comment = TradeComment + StringFormat("|c=%.2f|atr=%.5f", sig.confidence, sig.atr);
+   string comment = StringSubstr(full_comment, 0, 31);
 
    bool ok = (type == ORDER_TYPE_BUY)
       ? trade.Buy (lots, _symbol, price, sl, tp, comment)
@@ -289,12 +296,12 @@ void ManageOpenPositions()
       if(pos.PositionType() == POSITION_TYPE_BUY) {
          double cur = SymbolInfoDouble(_symbol, SYMBOL_BID);
          double be_sl = open_p + BE_LockPips * pip;
-         if(cur >= open_p + BE_TriggerPips * pip && cur_sl < be_sl)
+         if(cur >= open_p + BE_TriggerPips * pip && (cur_sl == 0 || cur_sl < be_sl))
             trade.PositionModify(pos.Ticket(), NormalizeDouble(be_sl,_digits), pos.TakeProfit());
       } else {
          double cur = SymbolInfoDouble(_symbol, SYMBOL_ASK);
          double be_sl = open_p - BE_LockPips * pip;
-         if(cur <= open_p - BE_TriggerPips * pip && cur_sl > be_sl)
+         if(cur <= open_p - BE_TriggerPips * pip && (cur_sl == 0 || cur_sl > be_sl))
             trade.PositionModify(pos.Ticket(), NormalizeDouble(be_sl,_digits), pos.TakeProfit());
       }
    }
@@ -357,7 +364,7 @@ int CountMyPositions()
 bool PingHealth()
 {
    char data[], result[]; string headers, resp_headers;
-   int code = WebRequest("GET", BridgeURL+"/health", headers, 3000, data, result, resp_headers);
+   int code = WebRequest("GET", BridgeURL+"/health", headers, 1500, data, result, resp_headers);
    _bridgeOK = (code == 200);
    return _bridgeOK;
 }

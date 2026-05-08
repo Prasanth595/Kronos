@@ -71,6 +71,7 @@ TP_ATR_MULT    = 3.0
 
 app            = Flask(__name__)
 _lock          = Lock()
+_model_lock    = Lock()   # separate lock so model load doesn't block inference cache checks
 _cache: dict   = {}
 _shared_predictor = None
 
@@ -79,21 +80,24 @@ def _load_model():
     global _shared_predictor
     if _shared_predictor is not None:
         return _shared_predictor
-    log.info(f"Loading Kronos model: {MODEL_NAME}")
-    try:
-        kronos_root = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
-        if kronos_root not in sys.path:
-            sys.path.insert(0, kronos_root)
-        from model import Kronos, KronosTokenizer, KronosPredictor
-        tokenizer = KronosTokenizer.from_pretrained(TOKENIZER_NAME)
-        model     = Kronos.from_pretrained(MODEL_NAME)
-        predictor = KronosPredictor(model, tokenizer, max_context=MAX_CONTEXT)
-        _shared_predictor = predictor
-        log.info("✅ Kronos model loaded successfully")
-        return predictor
-    except Exception as e:
-        log.error(f"❌ Failed to load Kronos: {e}")
-        raise
+    with _model_lock:
+        if _shared_predictor is not None:   # double-checked locking
+            return _shared_predictor
+        log.info(f"Loading Kronos model: {MODEL_NAME}")
+        try:
+            kronos_root = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
+            if kronos_root not in sys.path:
+                sys.path.insert(0, kronos_root)
+            from model import Kronos, KronosTokenizer, KronosPredictor
+            tokenizer = KronosTokenizer.from_pretrained(TOKENIZER_NAME)
+            model     = Kronos.from_pretrained(MODEL_NAME)
+            predictor = KronosPredictor(model, tokenizer, max_context=MAX_CONTEXT)
+            _shared_predictor = predictor
+            log.info("✅ Kronos model loaded successfully")
+            return predictor
+        except Exception as e:
+            log.error(f"❌ Failed to load Kronos: {e}")
+            raise
 
 
 def _compute_atr(closes, highs, lows, period=14):
@@ -157,12 +161,12 @@ def _set_cache(symbol, bar_hash, result):
     _cache[symbol] = {"hash": bar_hash, "result": result, "ts": time.time()}
 
 
-def _run_inference(symbol, df):
+def _run_inference(symbol, df, bar_freq="1min"):
     predictor = _load_model()
     lookback  = min(len(df), MAX_CONTEXT)
     hist_df   = df.iloc[-lookback:].reset_index(drop=True)
-    x_ts = pd.Series(pd.date_range(end=datetime.now(timezone.utc), periods=lookback, freq="1min"))
-    y_ts = pd.Series(pd.date_range(start=x_ts.iloc[-1], periods=PRED_LEN + 1, freq="1min")[1:])
+    x_ts = pd.Series(pd.date_range(end=datetime.now(timezone.utc), periods=lookback, freq=bar_freq))
+    y_ts = pd.Series(pd.date_range(start=x_ts.iloc[-1], periods=PRED_LEN + 1, freq=bar_freq)[1:])
     feed_cols = ["open", "high", "low", "close"] + [c for c in ["volume", "amount"] if c in hist_df.columns]
     x_df = hist_df[feed_cols].copy()
     t0 = time.perf_counter()
@@ -193,8 +197,9 @@ def predict():
         payload = request.get_json(force=True)
         if not payload:
             return jsonify({"error": "Empty or invalid JSON"}), 400
-        symbol = payload.get("symbol", "UNKNOWN").upper()
-        bars   = payload.get("bars", [])
+        symbol   = payload.get("symbol", "UNKNOWN").upper()
+        bars     = payload.get("bars", [])
+        bar_freq = payload.get("freq", "1min")
         if len(bars) < MIN_BARS:
             return jsonify({"error": f"Need >={MIN_BARS} bars, got {len(bars)}"}), 400
         df = pd.DataFrame(bars)
@@ -213,7 +218,7 @@ def predict():
             if cached:
                 cached["cache_hit"] = True
                 return jsonify(cached)
-            result = _run_inference(symbol, df)
+            result = _run_inference(symbol, df, bar_freq)
             result["cache_hit"] = False
             _set_cache(symbol, bar_hash, result)
         return jsonify(result)
@@ -230,6 +235,7 @@ def multi_predict():
         for req in payload.get("requests", []):
             symbol = req.get("symbol", "UNKNOWN").upper()
             try:
+                bar_freq = req.get("freq", "1min")
                 df = pd.DataFrame(req.get("bars", [])).apply(pd.to_numeric, errors="coerce").dropna()
                 bh = _bar_hash(df)
                 cached = _get_cache(symbol, bh)
@@ -238,10 +244,15 @@ def multi_predict():
                     results.append(cached)
                 else:
                     with _lock:
-                        sig = _run_inference(symbol, df)
-                        sig["cache_hit"] = False
-                        _set_cache(symbol, bh, sig)
-                        results.append(sig)
+                        cached = _get_cache(symbol, bh)
+                        if cached:
+                            cached["cache_hit"] = True
+                            results.append(cached)
+                        else:
+                            sig = _run_inference(symbol, df, bar_freq)
+                            sig["cache_hit"] = False
+                            _set_cache(symbol, bh, sig)
+                            results.append(sig)
             except Exception as e:
                 results.append({"symbol": symbol, "error": str(e)})
         return jsonify({"results": results})
@@ -260,7 +271,8 @@ def warmup():
 
 @app.route("/cache/clear", methods=["POST"])
 def clear_cache():
-    _cache.clear()
+    with _lock:
+        _cache.clear()
     return jsonify({"status": "cleared"})
 
 
