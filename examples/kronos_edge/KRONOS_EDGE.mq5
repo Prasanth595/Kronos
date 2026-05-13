@@ -4,8 +4,16 @@
 //|         Flip-Resistant Exit + Forecast Expiry                    |
 //|         AURELIA EMPIRE | ZEROEMOTIONS | CLAUDE inside(TM)        |
 //+------------------------------------------------------------------+
+//
+//  v1.1 fixes:
+//    - StringToCharArray null-terminator bug (malformed JSON to bridge)
+//    - Session filter: proper London/NY window instead of 2 kill-hours
+//    - SL/TP direction validation (guards invalid path levels)
+//    - SL bounds guard (min/max points)
+//    - Removed dead NO_TRADE branch (eliminated in bridge)
+//
 #property copyright "AURELIA EMPIRE | ZEROEMOTIONS"
-#property version   "1.00"
+#property version   "1.10"
 #property strict
 
 #include <Trade\Trade.mqh>
@@ -36,10 +44,14 @@ input double  MaxSpreadPoints   = 30.0;
 input double  DailyLossLimit    = 3.0;
 input double  FixedLots         = 0.01;
 
+input group "=== RISK BOUNDS ==="
+input int     MinSLPoints       = 30;          // minimum SL distance in points
+input int     MaxSLPoints       = 2000;        // maximum SL distance in points
+
 input group "=== SESSION ==="
-input bool    UseKillHours      = true;
-input int     KillHour1         = 10;
-input int     KillHour2         = 17;
+input bool    UseSession        = true;        // restrict to London/NY overlap
+input int     SessionStart      = 7;           // session open hour (UTC)
+input int     SessionEnd        = 20;          // session close hour (UTC)
 input bool    TradeMonday       = true;
 input bool    TradeFriday       = false;
 
@@ -129,8 +141,7 @@ void OnTick()
        sig.signal_state, sig.confidence, sig.path_tp, sig.path_sl, sig.atr,
        sig.sl_capped ? " [SL CAPPED]" : ""));
 
-   if(sig.signal_state == "NO_TRADE") { Log("NO_TRADE — variance too high"); return; }
-   if(sig.signal_state == "FLAT")     { Log("FLAT — delta too small"); return; }
+   if(sig.signal_state == "FLAT") { Log("FLAT — " + sig.signal_state); return; }
    if(sig.confidence < MinConfidence) {
       Log(StringFormat("Low confidence %.2f < %.2f — skip", sig.confidence, MinConfidence));
       return;
@@ -192,12 +203,24 @@ void ManageByRecheck()
 //+------------------------------------------------------------------+
 void ExecuteTrade(ENUM_ORDER_TYPE type, const KronosEdgeSignal &sig)
 {
+   bool isBuy   = (type == ORDER_TYPE_BUY);
    double ask   = SymbolInfoDouble(_symbol, SYMBOL_ASK);
    double bid   = SymbolInfoDouble(_symbol, SYMBOL_BID);
-   double price = (type == ORDER_TYPE_BUY) ? ask : bid;
+   double price = isBuy ? ask : bid;
    double sl    = NormalizeDouble(sig.path_sl, _digits);
    double tp    = NormalizeDouble(sig.path_tp, _digits);
-   double lots  = CalcLots(MathAbs(price - sl));
+
+   // Direction validation — path_sl and path_tp must be on correct side
+   if(isBuy  && (sl <= 0 || tp <= 0 || sl >= price || tp <= price)) { Log("BUY: invalid path levels"); return; }
+   if(!isBuy && (sl <= 0 || tp <= 0 || sl <= price || tp >= price)) { Log("SELL: invalid path levels"); return; }
+
+   // SL bounds guard
+   double sl_dist = MathAbs(price - sl);
+   int    sl_pts  = (int)MathRound(sl_dist / _point);
+   if(sl_pts < MinSLPoints) { Log("SL too tight: " + IntegerToString(sl_pts) + " pts — skip"); return; }
+   if(sl_pts > MaxSLPoints) { Log("SL too wide: "  + IntegerToString(sl_pts) + " pts — skip"); return; }
+
+   double lots  = CalcLots(sl_dist);
    string full_comment = TradeComment + StringFormat("|c=%.2f|e=%d", sig.confidence, ForecastBars);
    string comment      = StringSubstr(full_comment, 0, 31);
 
@@ -226,8 +249,8 @@ bool FetchSignal(KronosEdgeSignal &sig)
    if(bars_json == "") return false;
    string payload = "{\"symbol\":\"" + _symbol + "\",\"bars\":" + bars_json + "}";
    char data[], result[]; string headers = "Content-Type: application/json\r\n", rh;
-   StringToCharArray(payload, data, 0, StringLen(payload));
-   ArrayResize(data, ArraySize(data) - 1);
+   int sz = StringToCharArray(payload, data, 0, WHOLE_ARRAY, CP_UTF8);
+   if(sz > 1) ArrayResize(data, sz - 1);
    int code = WebRequest("POST", BridgeURL + "/predict", headers, TimeoutMS, data, result, rh);
    if(code != 200) { Log("HTTP " + IntegerToString(code)); return false; }
    return ParseEdgeSignal(CharArrayToString(result), sig);
@@ -238,8 +261,8 @@ bool FetchRecheck(const string &bars_json, RecheckResult &rc)
    rc.valid = false;
    string payload = "{\"symbol\":\"" + _symbol + "\",\"bars\":" + bars_json + "}";
    char data[], result[]; string headers = "Content-Type: application/json\r\n", rh;
-   StringToCharArray(payload, data, 0, StringLen(payload));
-   ArrayResize(data, ArraySize(data) - 1);
+   int sz = StringToCharArray(payload, data, 0, WHOLE_ARRAY, CP_UTF8);
+   if(sz > 1) ArrayResize(data, sz - 1);
    int code = WebRequest("POST", BridgeURL + "/recheck", headers, 5000, data, result, rh);
    if(code != 200) return false;
    string json   = CharArrayToString(result);
@@ -350,12 +373,11 @@ int CountMyPositions()
 
 bool PassesSessionFilter()
 {
-   if(!UseKillHours) return true;
-   MqlDateTime t; TimeToStruct(TimeGMT(), t);
-   if(t.hour == KillHour1 || t.hour == KillHour2) return false;
+   if(!UseSession) return true;
+   MqlDateTime t; TimeToStruct(TimeGMT(), t);   // UTC — SessionStart/End are UTC hours
    if(!TradeMonday && t.day_of_week == 1) return false;
    if(!TradeFriday && t.day_of_week == 5) return false;
-   return true;
+   return (t.hour >= SessionStart && t.hour < SessionEnd);
 }
 
 bool PassesDailyLossLimit()

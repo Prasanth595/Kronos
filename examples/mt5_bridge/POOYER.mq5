@@ -4,14 +4,20 @@
 //|              AURELIA EMPIRE | ZEROEMOTIONS | CLAUDE inside(TM)  |
 //+------------------------------------------------------------------+
 //
-//  POOYER EA — MT5 EA powered by Kronos (AAAI-2026 foundation model)
+//  POOYER EA v1.1 — MT5 EA powered by Kronos (AAAI-2026 foundation model)
 //  trained on 45+ global exchanges.
 //
 //  Flow: EA collects OHLCV bars -> WebRequest -> POOYER Bridge (Python)
 //        -> Kronos inference -> JSON signal -> EA executes trade
 //
+//  v1.1 fixes:
+//    - StringToCharArray null-terminator bug (malformed JSON to bridge)
+//    - Session filter: proper London/NY window instead of 2 kill-hours
+//    - MaxPositions default 1 (no stacking identical signals)
+//    - SL bounds validation (min/max points guard)
+//
 #property copyright "AURELIA EMPIRE | ZEROEMOTIONS"
-#property version   "1.00"
+#property version   "1.10"
 #property strict
 
 #include <Trade\Trade.mqh>
@@ -29,7 +35,7 @@ input int      TimeoutMS        = 8000;
 input group "=== SIGNAL FILTER ==="
 input double   MinConfidence    = 0.45;
 input string   AllowedDir       = "BOTH";
-input int      MaxPositions     = 2;
+input int      MaxPositions     = 1;           // 1 = one trade at a time (recommended)
 input bool     UseKronosTP      = true;
 input bool     UseKronosSL      = true;
 
@@ -38,6 +44,8 @@ input double   RiskPercent      = 1.0;
 input double   MaxSpreadPoints  = 30.0;
 input double   DailyLossLimit   = 3.0;
 input double   FixedLots        = 0.01;
+input int      MinSLPoints      = 30;          // minimum SL distance in points
+input int      MaxSLPoints      = 2000;        // maximum SL distance in points
 
 input group "=== ASYMMETRIC BREAKEVEN ==="
 input bool     UseBreakeven     = true;
@@ -45,9 +53,9 @@ input double   BE_TriggerPips   = 3.0;
 input double   BE_LockPips      = 0.5;
 
 input group "=== SESSION FILTER ==="
-input bool     UseKillHours     = true;
-input int      KillHour1        = 10;
-input int      KillHour2        = 17;
+input bool     UseSession       = true;        // restrict to London/NY overlap
+input int      SessionStart     = 7;           // session open hour (UTC)
+input int      SessionEnd       = 20;          // session close hour (UTC)
 input bool     TradeMonday      = true;
 input bool     TradeFriday      = false;
 
@@ -168,8 +176,9 @@ bool FetchSignal(KronosSignal &sig)
    string headers = "Content-Type: application/json\r\n";
    string resp_headers;
 
-   StringToCharArray(payload, data, 0, StringLen(payload));
-   ArrayResize(data, ArraySize(data) - 1);
+   // WHOLE_ARRAY appends null terminator; resize to strip it before sending
+   int sz = StringToCharArray(payload, data, 0, WHOLE_ARRAY, CP_UTF8);
+   if(sz > 1) ArrayResize(data, sz - 1);
 
    int http_code = WebRequest("POST", BridgeURL + "/predict", headers,
                               TimeoutMS, data, result, resp_headers);
@@ -265,6 +274,11 @@ void ExecuteTrade(ENUM_ORDER_TYPE type, const KronosSignal &sig)
       tp = NormalizeDouble(price - tp_dist, _digits);
    }
 
+   // SL bounds guard
+   int sl_pts = (int)MathRound(sl_dist / _point);
+   if(sl_pts < MinSLPoints) { Log("SL too tight: " + IntegerToString(sl_pts) + " pts — skip"); return; }
+   if(sl_pts > MaxSLPoints) { Log("SL too wide: "  + IntegerToString(sl_pts) + " pts — skip"); return; }
+
    double lots = CalcLots(sl_dist);
    string full_comment = TradeComment + StringFormat("|c=%.2f|atr=%.5f", sig.confidence, sig.atr);
    string comment = StringSubstr(full_comment, 0, 31);
@@ -327,12 +341,11 @@ double CalcLots(double sl_dist)
 //+------------------------------------------------------------------+
 bool PassesSessionFilter()
 {
-   if(!UseKillHours) return true;
-   MqlDateTime t; TimeToStruct(TimeGMT(), t);
-   if(t.hour == KillHour1 || t.hour == KillHour2) return false;
+   if(!UseSession) return true;
+   MqlDateTime t; TimeToStruct(TimeGMT(), t);   // UTC — SessionStart/End are UTC hours
    if(!TradeMonday && t.day_of_week == 1) return false;
    if(!TradeFriday && t.day_of_week == 5) return false;
-   return true;
+   return (t.hour >= SessionStart && t.hour < SessionEnd);
 }
 
 bool PassesDailyLossLimit()
