@@ -1,135 +1,83 @@
-# Kronos Web UI
+# Kronos Flask API
 
-Web user interface for Kronos financial prediction model, providing intuitive graphical operation interface.
+Thu muc nay chi chay backend API cho ung dung Kronos. UI hien tai nam trong `../webui-next` va chay bang Next.js tren port `3000`.
 
-## ✨ Features
+## Vai tro
 
-- **Multi-format data support**: Supports CSV, Feather and other financial data formats
-- **Smart time window**: Fixed 400+120 data point time window slider selection
-- **Real model prediction**: Integrated real Kronos model, supports multiple model sizes
-- **Prediction quality control**: Adjustable temperature, nucleus sampling, sample count and other parameters
-- **Multi-device support**: Supports CPU, CUDA, MPS and other computing devices
-- **Comparison analysis**: Detailed comparison between prediction results and actual data
-- **K-line chart display**: Professional financial K-line chart display
+- `webui/app.py`: Flask API, load model, load data va chay du bao.
+- `webui/run.py`: script khoi dong backend API.
+- `webui/requirements.txt`: dependency Python cho backend.
+- `webui/prediction_results/`: noi luu ket qua du bao da sinh.
 
-## 🚀 Quick Start
+## Chay backend
 
-### Method 1: Start with Python script
 ```bash
 cd webui
 python run.py
 ```
 
-### Method 2: Start with Shell script
-```bash
-cd webui
-chmod +x start.sh
-./start.sh
-```
+Hoac:
 
-### Method 3: Start Flask application directly
 ```bash
 cd webui
 python app.py
 ```
 
-After successful startup, visit http://localhost:7070
+Backend mac dinh chay tai:
 
-## 📋 Usage Steps
+```text
+http://localhost:7070
+```
 
-1. **Load data**: Select financial data file from data directory
-2. **Load model**: Select Kronos model and computing device
-3. **Set parameters**: Adjust prediction quality parameters
-4. **Select time window**: Use slider to select 400+120 data point time range
-5. **Start prediction**: Click prediction button to generate results
-6. **View results**: View prediction results in charts and tables
+Trang `/` cua Flask tra ve JSON thong tin service. No khong con serve UI cu nua.
 
-## 🔧 Prediction Quality Parameters
+## Chay UI Next.js
 
-### Temperature (T)
-- **Range**: 0.1 - 2.0
-- **Effect**: Controls prediction randomness
-- **Recommendation**: 1.2-1.5 for better prediction quality
+```bash
+cd webui-next
+npm run dev -- --hostname 0.0.0.0 --port 3000
+```
 
-### Nucleus Sampling (top_p)
-- **Range**: 0.1 - 1.0
-- **Effect**: Controls prediction diversity
-- **Recommendation**: 0.95-1.0 to consider more possibilities
+Mo UI tai:
 
-### Sample Count
-- **Range**: 1 - 5
-- **Effect**: Generate multiple prediction samples
-- **Recommendation**: 2-3 samples to improve quality
+```text
+http://localhost:3000
+```
 
-## 📊 Supported Data Formats
+Next.js rewrite cac request `/api/*` sang Flask backend:
 
-### Required Columns
-- `open`: Opening price
-- `high`: Highest price
-- `low`: Lowest price
-- `close`: Closing price
+```text
+http://127.0.0.1:7070/api/*
+```
 
-### Optional Columns
-- `volume`: Trading volume
-- `amount`: Trading amount (not used for prediction)
-- `timestamps`/`timestamp`/`date`: Timestamp
+## API chinh
 
-## 🤖 Model Support
+- `GET /api/health`: kiem tra backend co dang song khong.
+- `GET /api/data-files`: lay danh sach file du lieu trong `data/`.
+- `POST /api/load-data`: doc file du lieu va tra thong tin tong quan.
+- `GET /api/available-models`: lay danh sach model Kronos ho tro.
+- `GET /api/model-status`: xem model da load chua.
+- `POST /api/load-model`: load model Kronos vao RAM/CPU/GPU.
+- `POST /api/unload-model`: go model hien tai khoi RAM/VRAM de chuyen model khac.
+- `POST /api/predict`: chay du bao va tra ket qua cho UI.
 
-- **Kronos-mini**: 4.1M parameters, lightweight fast prediction
-- **Kronos-small**: 24.7M parameters, balanced performance and speed
-- **Kronos-base**: 102.3M parameters, high quality prediction
+## Dinh dang du lieu
 
-## 🖥️ GPU Acceleration Support
+Cot bat buoc:
 
-- **CPU**: General computing, best compatibility
-- **CUDA**: NVIDIA GPU acceleration, best performance
-- **MPS**: Apple Silicon GPU acceleration, recommended for Mac users
+- `open`
+- `high`
+- `low`
+- `close`
 
-## ⚠️ Notes
+Cot tuy chon:
 
-- `amount` column is not used for prediction, only for display
-- Time window is fixed at 400+120=520 data points
-- Ensure data file contains sufficient historical data
-- First model loading may require download, please be patient
+- `volume`
+- `amount`
+- `timestamps`, `timestamp` hoac `date`
 
-## 🔍 Comparison Analysis
+## Luu y
 
-The system automatically provides comparison analysis between prediction results and actual data, including:
-- Price difference statistics
-- Error analysis
-- Prediction quality assessment
-
-## 🛠️ Technical Architecture
-
-- **Backend**: Flask + Python
-- **Frontend**: HTML + CSS + JavaScript
-- **Charts**: Plotly.js
-- **Data processing**: Pandas + NumPy
-- **Model**: Hugging Face Transformers
-
-## 📝 Troubleshooting
-
-### Common Issues
-1. **Port occupied**: Modify port number in app.py
-2. **Missing dependencies**: Run `pip install -r requirements.txt`
-3. **Model loading failed**: Check network connection and model ID
-4. **Data format error**: Ensure data column names and format are correct
-
-### Log Viewing
-Detailed runtime information will be displayed in the console at startup, including model status and error messages.
-
-## 📄 License
-
-This project follows the license terms of the original Kronos project.
-
-## 🤝 Contributing
-
-Welcome to submit Issues and Pull Requests to improve this Web UI!
-
-## 📞 Support
-
-If you have questions, please check:
-1. Project documentation
-2. GitHub Issues
-3. Console error messages
+- Flask `7070` la API service, khong phai giao dien nguoi dung.
+- Next.js `3000` la giao dien chinh.
+- Neu can deploy sau nay, nen deploy/tach lifecycle cua Python API va Next.js UI ro rang.

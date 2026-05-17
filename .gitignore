@@ -10,8 +10,8 @@ dist/
 downloads/
 eggs/
 .eggs/
-lib/
-lib64/
+/lib/
+/lib64/
 parts/
 sdist/
 var/
@@ -57,11 +57,14 @@ Desktop.ini
 
 # Logs
 *.log
+*.pid
 logs/
+webui/prediction_results/
 
 # Environment
 .env
 .venv
+.tools/
 env/
 venv/
 ENV/

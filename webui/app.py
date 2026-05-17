@@ -2,9 +2,10 @@ import os
 import pandas as pd
 import numpy as np
 import json
+import gc
 import plotly.graph_objects as go
 import plotly.utils
-from flask import Flask, render_template, request, jsonify
+from flask import Flask, request, jsonify
 from flask_cors import CORS
 import sys
 import warnings
@@ -19,7 +20,7 @@ try:
     MODEL_AVAILABLE = True
 except ImportError:
     MODEL_AVAILABLE = False
-    print("Warning: Kronos model cannot be imported, will use simulated data for demonstration")
+    print("Warning: Kronos model cannot be imported")
 
 app = Flask(__name__)
 CORS(app)
@@ -29,6 +30,27 @@ tokenizer = None
 model = None
 predictor = None
 
+def release_loaded_model():
+    """Release model references and clear accelerator cache when available."""
+    global tokenizer, model, predictor
+
+    was_loaded = predictor is not None or model is not None or tokenizer is not None
+    predictor = None
+    model = None
+    tokenizer = None
+    gc.collect()
+
+    try:
+        import torch
+
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+            torch.cuda.ipc_collect()
+    except Exception as e:
+        print(f"Skipping accelerator cache cleanup: {e}")
+
+    return was_loaded
+
 # Available model configurations
 AVAILABLE_MODELS = {
     'kronos-mini': {
@@ -37,7 +59,7 @@ AVAILABLE_MODELS = {
         'tokenizer_id': 'NeoQuasar/Kronos-Tokenizer-2k',
         'context_length': 2048,
         'params': '4.1M',
-        'description': 'Lightweight model, suitable for fast prediction'
+        'description': 'Mô hình nhẹ, phù hợp để dự báo nhanh'
     },
     'kronos-small': {
         'name': 'Kronos-small',
@@ -45,7 +67,7 @@ AVAILABLE_MODELS = {
         'tokenizer_id': 'NeoQuasar/Kronos-Tokenizer-base',
         'context_length': 512,
         'params': '24.7M',
-        'description': 'Small model, balanced performance and speed'
+        'description': 'Mô hình nhỏ, cân bằng giữa chất lượng và tốc độ'
     },
     'kronos-base': {
         'name': 'Kronos-base',
@@ -53,7 +75,7 @@ AVAILABLE_MODELS = {
         'tokenizer_id': 'NeoQuasar/Kronos-Tokenizer-base',
         'context_length': 512,
         'params': '102.3M',
-        'description': 'Base model, provides better prediction quality'
+        'description': 'Mô hình base, chất lượng dự báo tốt hơn'
     }
 }
 
@@ -83,12 +105,12 @@ def load_data_file(file_path):
         elif file_path.endswith('.feather'):
             df = pd.read_feather(file_path)
         else:
-            return None, "Unsupported file format"
+            return None, "Định dạng file chưa được hỗ trợ"
         
         # Check required columns
         required_cols = ['open', 'high', 'low', 'close']
         if not all(col in df.columns for col in required_cols):
-            return None, f"Missing required columns: {required_cols}"
+            return None, f"Thiếu các cột bắt buộc: {required_cols}"
         
         # Process timestamp column
         if 'timestamps' in df.columns:
@@ -120,7 +142,7 @@ def load_data_file(file_path):
         return df, None
         
     except Exception as e:
-        return None, f"Failed to load file: {str(e)}"
+        return None, f"Không tải được file: {str(e)}"
 
 def save_prediction_results(file_path, prediction_type, prediction_results, actual_data, input_data, prediction_params):
     """Save prediction results to file"""
@@ -208,6 +230,12 @@ def save_prediction_results(file_path, prediction_type, prediction_results, actu
 
 def create_prediction_chart(df, pred_df, lookback, pred_len, actual_df=None, historical_start_idx=0):
     """Create prediction chart"""
+    def numeric_list(values):
+        return [float(v) for v in values]
+
+    def timestamp_list(values):
+        return [pd.Timestamp(v).isoformat() for v in values]
+
     # Use specified historical data start position, not always from the beginning of df
     if historical_start_idx + lookback + pred_len <= len(df):
         # Display lookback historical points + pred_len prediction points starting from specified position
@@ -225,12 +253,12 @@ def create_prediction_chart(df, pred_df, lookback, pred_len, actual_df=None, his
     
     # Add historical data (candlestick chart)
     fig.add_trace(go.Candlestick(
-        x=historical_df['timestamps'] if 'timestamps' in historical_df.columns else historical_df.index,
-        open=historical_df['open'],
-        high=historical_df['high'],
-        low=historical_df['low'],
-        close=historical_df['close'],
-        name='Historical Data (400 data points)',
+        x=timestamp_list(historical_df['timestamps'] if 'timestamps' in historical_df.columns else historical_df.index),
+        open=numeric_list(historical_df['open']),
+        high=numeric_list(historical_df['high']),
+        low=numeric_list(historical_df['low']),
+        close=numeric_list(historical_df['close']),
+        name='Dữ liệu lịch sử (400 điểm)',
         increasing_line_color='#26A69A',
         decreasing_line_color='#EF5350'
     ))
@@ -253,12 +281,12 @@ def create_prediction_chart(df, pred_df, lookback, pred_len, actual_df=None, his
             pred_timestamps = range(len(historical_df), len(historical_df) + len(pred_df))
         
         fig.add_trace(go.Candlestick(
-            x=pred_timestamps,
-            open=pred_df['open'],
-            high=pred_df['high'],
-            low=pred_df['low'],
-            close=pred_df['close'],
-            name='Prediction Data (120 data points)',
+            x=timestamp_list(pred_timestamps),
+            open=numeric_list(pred_df['open']),
+            high=numeric_list(pred_df['high']),
+            low=numeric_list(pred_df['low']),
+            close=numeric_list(pred_df['close']),
+            name='Dữ liệu dự báo (120 điểm)',
             increasing_line_color='#66BB6A',
             decreasing_line_color='#FF7043'
         ))
@@ -286,21 +314,21 @@ def create_prediction_chart(df, pred_df, lookback, pred_len, actual_df=None, his
             actual_timestamps = range(len(historical_df), len(historical_df) + len(actual_df))
         
         fig.add_trace(go.Candlestick(
-            x=actual_timestamps,
-            open=actual_df['open'],
-            high=actual_df['high'],
-            low=actual_df['low'],
-            close=actual_df['close'],
-            name='Actual Data (120 data points)',
+            x=timestamp_list(actual_timestamps),
+            open=numeric_list(actual_df['open']),
+            high=numeric_list(actual_df['high']),
+            low=numeric_list(actual_df['low']),
+            close=numeric_list(actual_df['close']),
+            name='Dữ liệu thực tế (120 điểm)',
             increasing_line_color='#FF9800',
             decreasing_line_color='#F44336'
         ))
     
     # Update layout
     fig.update_layout(
-        title='Kronos Financial Prediction Results - 400 Historical Points + 120 Prediction Points vs 120 Actual Points',
-        xaxis_title='Time',
-        yaxis_title='Price',
+        title='Kết quả dự báo Kronos - 400 điểm lịch sử + 120 điểm dự báo so với 120 điểm thực tế',
+        xaxis_title='Thời gian',
+        yaxis_title='Giá',
         template='plotly_white',
         height=600,
         showlegend=True
@@ -328,9 +356,35 @@ def create_prediction_chart(df, pred_df, lookback, pred_len, actual_df=None, his
     return json.dumps(fig, cls=plotly.utils.PlotlyJSONEncoder)
 
 @app.route('/')
-def index():
-    """Home page"""
-    return render_template('index.html')
+def api_root():
+    """API service information."""
+    return jsonify({
+        'service': 'Kronos Flask API',
+        'status': 'running',
+        'ui': 'http://localhost:3000',
+        'message': 'Flask hien chi chay backend API. Vui long dung NextJS UI o port 3000.',
+        'endpoints': {
+            'health': '/api/health',
+            'data_files': '/api/data-files',
+            'load_data': '/api/load-data',
+            'available_models': '/api/available-models',
+            'model_status': '/api/model-status',
+            'load_model': '/api/load-model',
+            'unload_model': '/api/unload-model',
+            'predict': '/api/predict'
+        }
+    })
+
+@app.route('/api/health')
+def health_check():
+    """Health check endpoint for the API service."""
+    return jsonify({
+        'success': True,
+        'service': 'Kronos Flask API',
+        'status': 'ok',
+        'model_available': MODEL_AVAILABLE,
+        'model_loaded': predictor is not None
+    })
 
 @app.route('/api/data-files')
 def get_data_files():
@@ -346,7 +400,7 @@ def load_data():
         file_path = data.get('file_path')
         
         if not file_path:
-            return jsonify({'error': 'File path cannot be empty'}), 400
+            return jsonify({'error': 'Đường dẫn file không được để trống'}), 400
         
         df, error = load_data_file(file_path)
         if error:
@@ -355,7 +409,7 @@ def load_data():
         # Detect data time frequency
         def detect_timeframe(df):
             if len(df) < 2:
-                return "Unknown"
+                return "Không rõ"
             
             time_diffs = []
             for i in range(1, min(10, len(df))):  # Check first 10 time differences
@@ -363,20 +417,20 @@ def load_data():
                 time_diffs.append(diff)
             
             if not time_diffs:
-                return "Unknown"
+                return "Không rõ"
             
             # Calculate average time difference
             avg_diff = sum(time_diffs, pd.Timedelta(0)) / len(time_diffs)
             
             # Convert to readable format
             if avg_diff < pd.Timedelta(minutes=1):
-                return f"{avg_diff.total_seconds():.0f} seconds"
+                return f"{avg_diff.total_seconds():.0f} giây"
             elif avg_diff < pd.Timedelta(hours=1):
-                return f"{avg_diff.total_seconds() / 60:.0f} minutes"
+                return f"{avg_diff.total_seconds() / 60:.0f} phút"
             elif avg_diff < pd.Timedelta(days=1):
-                return f"{avg_diff.total_seconds() / 3600:.0f} hours"
+                return f"{avg_diff.total_seconds() / 3600:.0f} giờ"
             else:
-                return f"{avg_diff.days} days"
+                return f"{avg_diff.days} ngày"
         
         # Return data information
         data_info = {
@@ -395,11 +449,11 @@ def load_data():
         return jsonify({
             'success': True,
             'data_info': data_info,
-            'message': f'Successfully loaded data, total {len(df)} rows'
+            'message': f'Đã tải dữ liệu thành công, tổng cộng {len(df)} dòng'
         })
         
     except Exception as e:
-        return jsonify({'error': f'Failed to load data: {str(e)}'}), 500
+        return jsonify({'error': f'Tải dữ liệu thất bại: {str(e)}'}), 500
 
 @app.route('/api/predict', methods=['POST'])
 def predict():
@@ -416,7 +470,7 @@ def predict():
         sample_count = int(data.get('sample_count', 1))
         
         if not file_path:
-            return jsonify({'error': 'File path cannot be empty'}), 400
+            return jsonify({'error': 'Đường dẫn file không được để trống'}), 400
         
         # Load data
         df, error = load_data_file(file_path)
@@ -424,7 +478,7 @@ def predict():
             return jsonify({'error': error}), 400
         
         if len(df) < lookback:
-            return jsonify({'error': f'Insufficient data length, need at least {lookback} rows'}), 400
+            return jsonify({'error': f'Không đủ dữ liệu, cần ít nhất {lookback} dòng'}), 400
         
         # Perform prediction
         if MODEL_AVAILABLE and predictor is not None:
@@ -448,7 +502,7 @@ def predict():
                     
                     # Ensure sufficient data: lookback + pred_len
                     if len(time_range_df) < lookback + pred_len:
-                        return jsonify({'error': f'Insufficient data from start time {start_dt.strftime("%Y-%m-%d %H:%M")}, need at least {lookback + pred_len} data points, currently only {len(time_range_df)} available'}), 400
+                        return jsonify({'error': f'Không đủ dữ liệu từ thời điểm bắt đầu {start_dt.strftime("%Y-%m-%d %H:%M")}, cần ít nhất {lookback + pred_len} điểm dữ liệu, hiện chỉ có {len(time_range_df)}'}), 400
                     
                     # Use first lookback data points within selected window for prediction
                     x_df = time_range_df.iloc[:lookback][required_cols]
@@ -462,13 +516,13 @@ def predict():
                     end_timestamp = time_range_df['timestamps'].iloc[lookback+pred_len-1]
                     time_span = end_timestamp - start_timestamp
                     
-                    prediction_type = f"Kronos model prediction (within selected window: first {lookback} data points for prediction, last {pred_len} data points for comparison, time span: {time_span})"
+                    prediction_type = f"Dự báo bằng mô hình Kronos (trong cửa sổ đã chọn: {lookback} điểm đầu làm dữ liệu vào, {pred_len} điểm sau để so sánh, độ dài thời gian: {time_span})"
                 else:
                     # Use latest data
                     x_df = df.iloc[:lookback][required_cols]
                     x_timestamp = df.iloc[:lookback]['timestamps']
                     y_timestamp = df.iloc[lookback:lookback+pred_len]['timestamps']
-                    prediction_type = "Kronos model prediction (latest data)"
+                    prediction_type = "Dự báo bằng mô hình Kronos (dữ liệu mới nhất)"
                 
                 # Ensure timestamps are Series format, not DatetimeIndex, to avoid .dt attribute error in Kronos model
                 if isinstance(x_timestamp, pd.DatetimeIndex):
@@ -487,9 +541,9 @@ def predict():
                 )
                 
             except Exception as e:
-                return jsonify({'error': f'Kronos model prediction failed: {str(e)}'}), 500
+                return jsonify({'error': f'Dự báo bằng mô hình Kronos thất bại: {str(e)}'}), 500
         else:
-            return jsonify({'error': 'Kronos model not loaded, please load model first'}), 400
+            return jsonify({'error': 'Chưa tải mô hình Kronos, vui lòng tải mô hình trước'}), 400
         
         # Prepare actual data for comparison (if exists)
         actual_data = []
@@ -617,11 +671,11 @@ def predict():
             'prediction_results': prediction_results,
             'actual_data': actual_data,
             'has_comparison': len(actual_data) > 0,
-            'message': f'Prediction completed, generated {pred_len} prediction points' + (f', including {len(actual_data)} actual data points for comparison' if len(actual_data) > 0 else '')
+            'message': f'Dự báo hoàn tất, đã tạo {pred_len} điểm dự báo' + (f', kèm {len(actual_data)} điểm dữ liệu thực tế để so sánh' if len(actual_data) > 0 else '')
         })
         
     except Exception as e:
-        return jsonify({'error': f'Prediction failed: {str(e)}'}), 500
+        return jsonify({'error': f'Dự báo thất bại: {str(e)}'}), 500
 
 @app.route('/api/load-model', methods=['POST'])
 def load_model():
@@ -630,17 +684,20 @@ def load_model():
     
     try:
         if not MODEL_AVAILABLE:
-            return jsonify({'error': 'Kronos model library not available'}), 400
+            return jsonify({'error': 'Không tìm thấy thư viện mô hình Kronos'}), 400
         
         data = request.get_json()
         model_key = data.get('model_key', 'kronos-small')
         device = data.get('device', 'cpu')
         
         if model_key not in AVAILABLE_MODELS:
-            return jsonify({'error': f'Unsupported model: {model_key}'}), 400
+            return jsonify({'error': f'Mô hình chưa được hỗ trợ: {model_key}'}), 400
         
         model_config = AVAILABLE_MODELS[model_key]
-        
+
+        # Release any model currently in memory before loading another one.
+        release_loaded_model()
+
         # Load tokenizer and model
         tokenizer = KronosTokenizer.from_pretrained(model_config['tokenizer_id'])
         model = Kronos.from_pretrained(model_config['model_id'])
@@ -650,7 +707,7 @@ def load_model():
         
         return jsonify({
             'success': True,
-            'message': f'Model loaded successfully: {model_config["name"]} ({model_config["params"]}) on {device}',
+            'message': f'Đã tải mô hình thành công: {model_config["name"]} ({model_config["params"]}) trên {device}',
             'model_info': {
                 'name': model_config['name'],
                 'params': model_config['params'],
@@ -660,7 +717,20 @@ def load_model():
         })
         
     except Exception as e:
-        return jsonify({'error': f'Model loading failed: {str(e)}'}), 500
+        return jsonify({'error': f'Tải mô hình thất bại: {str(e)}'}), 500
+
+@app.route('/api/unload-model', methods=['POST'])
+def unload_model():
+    """Unload the current Kronos model from memory."""
+    try:
+        was_loaded = release_loaded_model()
+        return jsonify({
+            'success': True,
+            'was_loaded': was_loaded,
+            'message': 'Đã gỡ mô hình khỏi bộ nhớ' if was_loaded else 'Hiện không có mô hình nào đang được tải'
+        })
+    except Exception as e:
+        return jsonify({'error': f'Gỡ mô hình thất bại: {str(e)}'}), 500
 
 @app.route('/api/available-models')
 def get_available_models():
@@ -678,7 +748,7 @@ def get_model_status():
             return jsonify({
                 'available': True,
                 'loaded': True,
-                'message': 'Kronos model loaded and available',
+                'message': 'Mô hình Kronos đã được tải và sẵn sàng',
                 'current_model': {
                     'name': predictor.model.__class__.__name__,
                     'device': str(next(predictor.model.parameters()).device)
@@ -688,21 +758,21 @@ def get_model_status():
             return jsonify({
                 'available': True,
                 'loaded': False,
-                'message': 'Kronos model available but not loaded'
+                'message': 'Có thể dùng mô hình Kronos, nhưng chưa tải'
             })
     else:
         return jsonify({
             'available': False,
             'loaded': False,
-            'message': 'Kronos model library not available, please install related dependencies'
+            'message': 'Không tìm thấy thư viện mô hình Kronos, vui lòng cài các dependency liên quan'
         })
 
 if __name__ == '__main__':
-    print("Starting Kronos Web UI...")
+    print("Starting Kronos Flask API...")
     print(f"Model availability: {MODEL_AVAILABLE}")
     if MODEL_AVAILABLE:
         print("Tip: You can load Kronos model through /api/load-model endpoint")
     else:
-        print("Tip: Will use simulated data for demonstration")
+        print("Tip: Kronos model is not available")
     
     app.run(debug=True, host='0.0.0.0', port=7070)

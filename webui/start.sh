@@ -1,40 +1,34 @@
 #!/bin/bash
 
-# Kronos Web UI startup script
+# Kronos Flask API startup script.
+# Next.js serves the browser UI from ../webui-next on port 3000.
 
-echo "🚀 Starting Kronos Web UI..."
-echo "================================"
+echo "Starting Kronos Flask API..."
+echo "============================="
 
-# Check if Python is installed
-if ! command -v python3 &> /dev/null; then
-    echo "❌ Python3 not installed, please install Python3 first"
+if ! command -v python3 >/dev/null 2>&1; then
+    echo "Python3 is not installed. Please install Python3 first."
     exit 1
 fi
 
-# Check if in correct directory
 if [ ! -f "app.py" ]; then
-    echo "❌ Please run this script in the webui directory"
+    echo "Please run this script from the webui directory."
     exit 1
 fi
 
-# Check dependencies
-echo "📦 Checking dependencies..."
-if ! python3 -c "import flask, flask_cors, pandas, numpy, plotly" &> /dev/null; then
-    echo "⚠️  Missing dependencies, installing..."
+echo "Checking backend dependencies..."
+if ! python3 -c "import flask, flask_cors, pandas, numpy, plotly" >/dev/null 2>&1; then
+    echo "Missing dependencies, installing..."
     pip3 install -r requirements.txt
     if [ $? -ne 0 ]; then
-        echo "❌ Dependencies installation failed"
+        echo "Dependency installation failed."
         exit 1
     fi
-    echo "✅ Dependencies installation completed"
-else
-    echo "✅ All dependencies installed"
 fi
 
-# Start application
-echo "🌐 Starting Web server..."
-echo "Access URL: http://localhost:7070"
-echo "Press Ctrl+C to stop server"
+echo "Starting API server on http://localhost:7070"
+echo "Use the Next.js UI at http://localhost:3000"
+echo "Press Ctrl+C to stop this API server"
 echo ""
 
 python3 app.py
