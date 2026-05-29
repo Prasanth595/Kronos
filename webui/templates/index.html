@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="zh-CN">
+<html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -302,6 +302,88 @@
         }
 
         /* Comparison analysis styles */
+        /* Trading Signal Panel */
+        #signal-section {
+            margin-top: 20px;
+            border-radius: 10px;
+            overflow: hidden;
+            border: 1px solid #2a2a4a;
+        }
+        .signal-header {
+            padding: 14px 20px;
+            font-size: 1.1em;
+            font-weight: 700;
+            letter-spacing: 0.5px;
+        }
+        .signal-STRONG-BUY  { background: #0d3b1e; color: #4ade80; }
+        .signal-BUY           { background: #0d2b1e; color: #86efac; }
+        .signal-NEUTRAL       { background: #1e1e2e; color: #94a3b8; }
+        .signal-CAUTION       { background: #2b1e0d; color: #fbbf24; }
+        .signal-NO-BUY        { background: #2b0d0d; color: #f87171; }
+        .signal-body {
+            background: #0f1117;
+            padding: 16px 20px;
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+            gap: 14px;
+        }
+        .signal-card {
+            background: #1a1a2e;
+            border-radius: 8px;
+            padding: 12px 16px;
+            border-left: 3px solid #1E88E5;
+        }
+        .signal-card.danger  { border-left-color: #f87171; }
+        .signal-card.success { border-left-color: #4ade80; }
+        .signal-card.warn    { border-left-color: #fbbf24; }
+        .signal-card .sc-label { font-size: 0.72em; color: #64748b; text-transform: uppercase; letter-spacing: 0.8px; margin-bottom: 4px; }
+        .signal-card .sc-value { font-size: 1.25em; font-weight: 700; color: #e2e8f0; }
+        .signal-card .sc-sub   { font-size: 0.8em; color: #94a3b8; margin-top: 2px; }
+        .signal-traj {
+            background: #0f1117;
+            padding: 0 20px 16px;
+            display: flex;
+            gap: 0;
+            align-items: center;
+        }
+        .traj-step {
+            flex: 1;
+            text-align: center;
+            padding: 10px 4px;
+            background: #1a1a2e;
+            font-size: 0.82em;
+            color: #94a3b8;
+        }
+        .traj-step .ts-val { font-size: 1.1em; font-weight: 700; margin-top: 2px; }
+        .traj-step.up   .ts-val { color: #4ade80; }
+        .traj-step.down .ts-val { color: #f87171; }
+        .traj-step.flat .ts-val { color: #94a3b8; }
+        .traj-arrow { color: #334155; font-size: 1.2em; padding: 0 2px; }
+        .signal-ops {
+            background: #0f1117;
+            padding: 0 20px 20px;
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+            gap: 10px;
+        }
+        .op-box {
+            border-radius: 6px;
+            padding: 10px 14px;
+            font-size: 0.85em;
+        }
+        .op-box .ob-label { color: #64748b; font-size: 0.75em; text-transform: uppercase; letter-spacing: 0.6px; }
+        .op-box .ob-val   { font-size: 1.1em; font-weight: 700; margin-top: 3px; }
+        .op-entry   { background: #0d1f3c; border: 1px solid #1E88E5; }
+        .op-entry   .ob-val { color: #64B5F6; }
+        .op-stop    { background: #2b0d0d; border: 1px solid #f87171; }
+        .op-stop    .ob-val { color: #f87171; }
+        .op-target1 { background: #0d2b1e; border: 1px solid #4ade80; }
+        .op-target1 .ob-val { color: #4ade80; }
+        .op-target2 { background: #0d3b1e; border: 1px solid #86efac; }
+        .op-target2 .ob-val { color: #86efac; }
+        .op-period  { background: #1e1e2e; border: 1px solid #334155; }
+        .op-period  .ob-val { color: #94a3b8; }
+
         .comparison-section {
             background: #f7fafc;
             border: 1px solid #e2e8f0;
@@ -566,8 +648,15 @@
                 </div>
 
                 <button id="predict-btn" class="btn btn-success" disabled>
-                    🔮 Start Prediction
+                    🔮 Backtest (compare with actual)
                 </button>
+
+                <button id="predict-future-btn" class="btn btn-primary" disabled style="margin-top:8px; width:100%; padding:12px; font-size:1.1em; background:#1E88E5; border:none; border-radius:6px; color:white; cursor:pointer;">
+                    🎯 Predict Future Now
+                </button>
+                <small style="color:#aaa; display:block; margin-top:4px; text-align:center;">
+                    Uses the last 400 candles → predicts the next 120 that haven't happened yet
+                </small>
 
                 <!-- Loading Status -->
                 <div id="loading" class="loading">
@@ -578,8 +667,13 @@
 
             <div class="chart-container">
                 <h2>📈 Prediction Results Chart</h2>
-                <div id="chart"></div>
+                <div style="position:relative; width:100%; height:620px; overflow:hidden; border-radius:8px;">
+                    <div id="chart" style="width:100%; height:620px;"></div>
+                </div>
                 
+                <!-- Trading Signal Analysis Panel -->
+                <div id="signal-section" style="display:none; margin-top:20px;"></div>
+
                 <!-- Comparison Analysis -->
                 <div id="comparison-section" class="comparison-section" style="display: none;">
                     <h3>📊 Prediction vs Actual Data Comparison</h3>
@@ -719,6 +813,7 @@
                     showStatus('success', response.data.message);
                     updateModelStatus();
                     document.getElementById('predict-btn').disabled = false;
+                    document.getElementById('predict-future-btn').disabled = false;
                     console.log('✅ Model loaded successfully:', response.data.model_info);
                 } else {
                     showStatus('error', response.data.error);
@@ -799,6 +894,7 @@
                     // Update prediction button status
                     if (modelLoaded) {
                         document.getElementById('predict-btn').disabled = false;
+                        document.getElementById('predict-future-btn').disabled = false;
                     }
                     
                     console.log('✅ Data loaded successfully:', response.data.data_info);
@@ -1098,16 +1194,183 @@
 
         // Display prediction results
         function displayPredictionResult(result) {
-            // Display chart
             const chartData = JSON.parse(result.chart);
             Plotly.newPlot('chart', chartData.data, chartData.layout);
-            
-            // Display comparison analysis (if actual data exists)
+
+            // Always compute and show trading signal panel
+            displaySignalPanel(result);
+
             if (result.has_comparison) {
                 displayComparisonAnalysis(result);
             } else {
                 document.getElementById('comparison-section').style.display = 'none';
             }
+        }
+
+        function displaySignalPanel(result) {
+            const sec = document.getElementById('signal-section');
+            const preds = result.prediction_data;
+            if (!preds || preds.length === 0) { sec.style.display = 'none'; return; }
+
+            const currentPrice = result.current_price || preds[0].open;
+            const closes = preds.map(p => p.close);
+            const highs  = preds.map(p => p.high);
+            const lows   = preds.map(p => p.low);
+
+            const predEnd  = closes[closes.length - 1];
+            const predMax  = Math.max(...highs);
+            const predMin  = Math.min(...lows);
+            const predMean = closes.reduce((a,b)=>a+b,0)/closes.length;
+            const chgPct   = (predEnd - currentPrice) / currentPrice * 100;
+            const maxPct   = (predMax  - currentPrice) / currentPrice * 100;
+            const minPct   = (predMin  - currentPrice) / currentPrice * 100;
+
+            // Weekly breakdowns (each candle = 1 period; 4h data → 42 per week)
+            const step = Math.floor(preds.length / 3);
+            const w1   = closes[Math.min(step-1, closes.length-1)];
+            const w2   = closes[Math.min(step*2-1, closes.length-1)];
+            const w3   = closes[closes.length-1];
+            const w1p  = (w1-currentPrice)/currentPrice*100;
+            const w2p  = (w2-currentPrice)/currentPrice*100;
+            const w3p  = (w3-currentPrice)/currentPrice*100;
+
+            // Support / resistance
+            const sortedLows   = [...lows].sort((a,b)=>a-b);
+            const sortedHighs  = [...highs].sort((a,b)=>a-b);
+            const support      = sortedLows[Math.floor(sortedLows.length*0.10)];
+            const resistance   = sortedHighs[Math.floor(sortedHighs.length*0.90)];
+
+            // Stop (-3% below current), targets
+            const stopLoss = currentPrice * 0.97;
+            const target1  = resistance * 0.97;
+            const target2  = predMax;
+
+            // Signal logic
+            let signalKey, signalText, signalIcon;
+            if (chgPct > 8 && w1p > 3) {
+                signalKey='STRONG-BUY'; signalIcon='🚀'; signalText='STRONG BUY — sustained rally predicted';
+            } else if (chgPct > 3 && w1p > 0) {
+                signalKey='BUY'; signalIcon='📈'; signalText='BUY — upward move expected, use stop-loss';
+            } else if (Math.abs(chgPct) <= 3) {
+                signalKey='NEUTRAL'; signalIcon='⏸️'; signalText='NEUTRAL / SIDEWAYS — awaiting confirmation';
+            } else if (chgPct < -8) {
+                signalKey='NO-BUY'; signalIcon='🔻'; signalText='DO NOT BUY — decline predicted';
+            } else {
+                signalKey='CAUTION'; signalIcon='⚠️'; signalText='CAUTION — weak signal, small position';
+            }
+
+            const trajClass = p => p > 1 ? 'up' : p < -1 ? 'down' : 'flat';
+            const fmt = v => v.toFixed(4);
+            const fmtp = v => (v>0?'+':'')+v.toFixed(1)+'%';
+
+            const totalCandles = preds.length;
+            const hoursTotal   = totalCandles * (result.interval_hours || 4);
+            const daysTotal    = Math.max(1, Math.round(hoursTotal / 24));
+            const daysPerStep  = Math.max(1, Math.round(daysTotal / 3));
+            let firstDate, lastDate;
+            try { firstDate = new Date(preds[0].timestamp); }           catch(e) { firstDate = new Date(); }
+            try { lastDate  = new Date(preds[preds.length-1].timestamp); } catch(e) { lastDate  = new Date(); }
+            if (isNaN(firstDate.getTime())) firstDate = new Date();
+            if (isNaN(lastDate.getTime()))  lastDate  = new Date();
+            const fmtDate = d => {
+                try {
+                    if (!d || isNaN(d.getTime())) return '?';
+                    return d.toLocaleDateString('en-US',{day:'2-digit',month:'2-digit'});
+                } catch(e) { return '?'; }
+            };
+
+            sec.innerHTML = `
+            <div class="signal-header signal-${signalKey}">
+                ${signalIcon} ${signalText}
+                <span style="float:right;font-size:0.8em;opacity:0.7;">
+                    ${fmtDate(firstDate)} → ${fmtDate(lastDate)} &nbsp;|&nbsp; ${daysTotal} days forecast
+                </span>
+            </div>
+            <div class="signal-body">
+                <div class="signal-card">
+                    <div class="sc-label">Current Price</div>
+                    <div class="sc-value">$${fmt(currentPrice)}</div>
+                    <div class="sc-sub">last candle</div>
+                </div>
+                <div class="signal-card ${chgPct>=0?'success':'danger'}">
+                    <div class="sc-label">Predicted Final Price</div>
+                    <div class="sc-value">$${fmt(predEnd)}</div>
+                    <div class="sc-sub">${fmtp(chgPct)} in ${daysTotal}d</div>
+                </div>
+                <div class="signal-card success">
+                    <div class="sc-label">Predicted High</div>
+                    <div class="sc-value">$${fmt(predMax)}</div>
+                    <div class="sc-sub">${fmtp(maxPct)}</div>
+                </div>
+                <div class="signal-card ${minPct < -5 ? 'danger':'warn'}">
+                    <div class="sc-label">Predicted Low</div>
+                    <div class="sc-value">$${fmt(predMin)}</div>
+                    <div class="sc-sub">${fmtp(minPct)}</div>
+                </div>
+                <div class="signal-card">
+                    <div class="sc-label">Predicted Mean</div>
+                    <div class="sc-value">$${fmt(predMean)}</div>
+                    <div class="sc-sub">over the period</div>
+                </div>
+                <div class="signal-card">
+                    <div class="sc-label">Support / Resistance</div>
+                    <div class="sc-value">$${fmt(support)}</div>
+                    <div class="sc-sub">resist. $${fmt(resistance)}</div>
+                </div>
+            </div>
+            <div class="signal-traj">
+                <div class="traj-step flat">
+                    <div>Now</div>
+                    <div class="ts-val">$${fmt(currentPrice)}</div>
+                </div>
+                <div class="traj-arrow">→</div>
+                <div class="traj-step ${trajClass(w1p)}">
+                    <div>${daysPerStep}d</div>
+                    <div class="ts-val">${fmtp(w1p)}</div>
+                    <div style="font-size:0.8em;color:#475569">$${fmt(w1)}</div>
+                </div>
+                <div class="traj-arrow">→</div>
+                <div class="traj-step ${trajClass(w2p)}">
+                    <div>${daysPerStep*2}d</div>
+                    <div class="ts-val">${fmtp(w2p)}</div>
+                    <div style="font-size:0.8em;color:#475569">$${fmt(w2)}</div>
+                </div>
+                <div class="traj-arrow">→</div>
+                <div class="traj-step ${trajClass(w3p)}">
+                    <div>${daysTotal}d</div>
+                    <div class="ts-val">${fmtp(w3p)}</div>
+                    <div style="font-size:0.8em;color:#475569">$${fmt(w3)}</div>
+                </div>
+            </div>
+            <div class="signal-ops">
+                <div class="op-box op-entry">
+                    <div class="ob-label">🎯 Entry</div>
+                    <div class="ob-val">$${fmt(currentPrice)}</div>
+                    <div style="font-size:0.75em;color:#64748b">current price</div>
+                </div>
+                <div class="op-box op-stop">
+                    <div class="ob-label">🛑 Stop-Loss</div>
+                    <div class="ob-val">$${fmt(stopLoss)}</div>
+                    <div style="font-size:0.75em;color:#64748b">-3% — below support</div>
+                </div>
+                <div class="op-box op-target1">
+                    <div class="ob-label">🎯 Target 1</div>
+                    <div class="ob-val">$${fmt(target1)}</div>
+                    <div style="font-size:0.75em;color:#64748b">${fmtp((target1-currentPrice)/currentPrice*100)}</div>
+                </div>
+                <div class="op-box op-target2">
+                    <div class="ob-label">🎯 Target 2</div>
+                    <div class="ob-val">$${fmt(target2)}</div>
+                    <div style="font-size:0.75em;color:#64748b">${fmtp(maxPct)}</div>
+                </div>
+                <div class="op-box op-period">
+                    <div class="ob-label">📅 Timeframe</div>
+                    <div class="ob-val">${daysPerStep}–${daysPerStep*2} days</div>
+                    <div style="font-size:0.75em;color:#64748b">peak expected in phase 1</div>
+                </div>
+            </div>
+            `;
+            sec.style.display = 'block';
         }
 
         // Display comparison analysis
@@ -1186,6 +1449,47 @@
             }
         }
 
+        // Predict true future (beyond last candle in data)
+        async function predictFutureNow() {
+            if (!currentDataFile) {
+                showStatus('error', 'Please load a data file first');
+                return;
+            }
+            if (!modelLoaded) {
+                showStatus('error', 'Please load the model first');
+                return;
+            }
+            try {
+                showLoading(true);
+                document.getElementById('predict-future-btn').disabled = true;
+                document.getElementById('predict-btn').disabled = true;
+                const temperature = parseFloat(document.getElementById('temperature').value);
+                const topP = parseFloat(document.getElementById('top-p').value);
+                const sampleCount = parseInt(document.getElementById('sample-count').value);
+                const response = await axios.post('/api/predict', {
+                    file_path: currentDataFile,
+                    lookback: 400,
+                    pred_len: 120,
+                    predict_future: true,
+                    temperature: temperature,
+                    top_p: topP,
+                    sample_count: sampleCount
+                });
+                if (response.data.success) {
+                    displayPredictionResult(response.data);
+                    showStatus('success', '🎯 Future forecast generated! (no actual data to compare — this is the future)');
+                } else {
+                    showStatus('error', response.data.error);
+                }
+            } catch (error) {
+                showStatus('error', `Error: ${error.response?.data?.error || error.message}`);
+            } finally {
+                showLoading(false);
+                document.getElementById('predict-future-btn').disabled = false;
+                document.getElementById('predict-btn').disabled = false;
+            }
+        }
+
         // Set up event listeners
         function setupEventListeners() {
             // Load model button
@@ -1196,6 +1500,9 @@
             
             // Prediction button
             document.getElementById('predict-btn').addEventListener('click', startPrediction);
+
+            // Future prediction button
+            document.getElementById('predict-future-btn').addEventListener('click', predictFutureNow);
             
             // Prediction quality parameter sliders
             document.getElementById('temperature').addEventListener('input', function() {

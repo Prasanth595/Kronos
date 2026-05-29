@@ -223,7 +223,7 @@ def create_prediction_chart(df, pred_df, lookback, pred_len, actual_df=None, his
     # Create chart
     fig = go.Figure()
     
-    # Add historical data (candlestick chart)
+    # Add historical data (candlestick chart) — GRAY (neutral background)
     fig.add_trace(go.Candlestick(
         x=historical_df['timestamps'] if 'timestamps' in historical_df.columns else historical_df.index,
         open=historical_df['open'],
@@ -231,8 +231,11 @@ def create_prediction_chart(df, pred_df, lookback, pred_len, actual_df=None, his
         low=historical_df['low'],
         close=historical_df['close'],
         name='Historical Data (400 data points)',
-        increasing_line_color='#26A69A',
-        decreasing_line_color='#EF5350'
+        increasing_line_color='#78909C',
+        decreasing_line_color='#546E7A',
+        increasing_fillcolor='#B0BEC5',
+        decreasing_fillcolor='#78909C',
+        opacity=0.7
     ))
     
     # Add prediction data (candlestick chart)
@@ -259,8 +262,11 @@ def create_prediction_chart(df, pred_df, lookback, pred_len, actual_df=None, his
             low=pred_df['low'],
             close=pred_df['close'],
             name='Prediction Data (120 data points)',
-            increasing_line_color='#66BB6A',
-            decreasing_line_color='#FF7043'
+            increasing_line_color='#1E88E5',
+            decreasing_line_color='#1565C0',
+            increasing_fillcolor='#64B5F6',
+            decreasing_fillcolor='#1E88E5',
+            opacity=0.9
         ))
     
     # Add actual data for comparison (if exists)
@@ -292,18 +298,25 @@ def create_prediction_chart(df, pred_df, lookback, pred_len, actual_df=None, his
             low=actual_df['low'],
             close=actual_df['close'],
             name='Actual Data (120 data points)',
-            increasing_line_color='#FF9800',
-            decreasing_line_color='#F44336'
+            increasing_line_color='#F57C00',
+            decreasing_line_color='#BF360C',
+            increasing_fillcolor='#FFB74D',
+            decreasing_fillcolor='#FF7043',
+            opacity=0.9
         ))
     
     # Update layout
     fig.update_layout(
-        title='Kronos Financial Prediction Results - 400 Historical Points + 120 Prediction Points vs 120 Actual Points',
+        title='Kronos — 400 Historical (gray) | 120 Prediction (blue) | 120 Actual (orange)',
         xaxis_title='Time',
         yaxis_title='Price',
-        template='plotly_white',
-        height=600,
-        showlegend=True
+        template='plotly_dark',
+        height=620,
+        showlegend=True,
+        legend=dict(orientation='h', yanchor='bottom', y=1.02, xanchor='right', x=1),
+        paper_bgcolor='#1a1a2e',
+        plot_bgcolor='#16213e',
+        font=dict(color='#e0e0e0')
     )
     
     # Ensure x-axis time continuity
@@ -437,31 +450,41 @@ def predict():
                 
                 # Process time period selection
                 start_date = data.get('start_date')
-                
-                if start_date:
-                    # Custom time period - fix logic: use data within selected window
+                predict_future = data.get('predict_future', False)
+
+                if predict_future:
+                    # TRUE FUTURE MODE: use the most recent 'lookback' candles, generate timestamps beyond last data point
+                    x_df = df.tail(lookback)[required_cols].reset_index(drop=True)
+                    x_timestamp = df.tail(lookback)['timestamps'].reset_index(drop=True)
+
+                    # Detect candle interval from data
+                    time_diff = df['timestamps'].iloc[-1] - df['timestamps'].iloc[-2]
+
+                    # Generate future timestamps that don't exist yet
+                    last_ts = df['timestamps'].iloc[-1]
+                    y_timestamp = pd.Series(
+                        pd.date_range(start=last_ts + time_diff, periods=pred_len, freq=time_diff),
+                        name='timestamps'
+                    )
+                    prediction_type = f"FUTURE PREDICTION — using last {lookback} candles up to {last_ts.strftime('%Y-%m-%d %H:%M')}, forecasting next {pred_len} candles ({(time_diff * pred_len)})"
+
+                elif start_date:
+                    # BACKTEST MODE: use data within selected window
                     start_dt = pd.to_datetime(start_date)
-                    
-                    # Find data after start time
+
                     mask = df['timestamps'] >= start_dt
                     time_range_df = df[mask]
-                    
-                    # Ensure sufficient data: lookback + pred_len
+
                     if len(time_range_df) < lookback + pred_len:
                         return jsonify({'error': f'Insufficient data from start time {start_dt.strftime("%Y-%m-%d %H:%M")}, need at least {lookback + pred_len} data points, currently only {len(time_range_df)} available'}), 400
-                    
-                    # Use first lookback data points within selected window for prediction
+
                     x_df = time_range_df.iloc[:lookback][required_cols]
                     x_timestamp = time_range_df.iloc[:lookback]['timestamps']
-                    
-                    # Use last pred_len data points within selected window as actual values
                     y_timestamp = time_range_df.iloc[lookback:lookback+pred_len]['timestamps']
-                    
-                    # Calculate actual time period length
+
                     start_timestamp = time_range_df['timestamps'].iloc[0]
                     end_timestamp = time_range_df['timestamps'].iloc[lookback+pred_len-1]
                     time_span = end_timestamp - start_timestamp
-                    
                     prediction_type = f"Kronos model prediction (within selected window: first {lookback} data points for prediction, last {pred_len} data points for comparison, time span: {time_span})"
                 else:
                     # Use latest data
@@ -494,49 +517,36 @@ def predict():
         # Prepare actual data for comparison (if exists)
         actual_data = []
         actual_df = None
-        
-        if start_date:  # Custom time period
-            # Fix logic: use data within selected window
-            # Prediction uses first 400 data points within selected window
-            # Actual data should be last 120 data points within selected window
+
+        if predict_future:
+            # TRUE FUTURE MODE: no actual data exists — the future hasn't happened yet
+            actual_df = None
+
+        elif start_date:
+            # BACKTEST MODE: actual data = the pred_len candles right after the 400 lookback candles
             start_dt = pd.to_datetime(start_date)
-            
-            # Find data starting from start_date
             mask = df['timestamps'] >= start_dt
             time_range_df = df[mask]
-            
+
             if len(time_range_df) >= lookback + pred_len:
-                # Get last 120 data points within selected window as actual values
                 actual_df = time_range_df.iloc[lookback:lookback+pred_len]
-                
-                for i, (_, row) in enumerate(actual_df.iterrows()):
+                for _, row in actual_df.iterrows():
                     actual_data.append({
                         'timestamp': row['timestamps'].isoformat(),
-                        'open': float(row['open']),
-                        'high': float(row['high']),
-                        'low': float(row['low']),
-                        'close': float(row['close']),
+                        'open':   float(row['open']),
+                        'high':   float(row['high']),
+                        'low':    float(row['low']),
+                        'close':  float(row['close']),
                         'volume': float(row['volume']) if 'volume' in row else 0,
                         'amount': float(row['amount']) if 'amount' in row else 0
                     })
-        else:  # Latest data
-            # Prediction uses first 400 data points
-            # Actual data should be 120 data points after first 400 data points
-            if len(df) >= lookback + pred_len:
-                actual_df = df.iloc[lookback:lookback+pred_len]
-                for i, (_, row) in enumerate(actual_df.iterrows()):
-                    actual_data.append({
-                        'timestamp': row['timestamps'].isoformat(),
-                        'open': float(row['open']),
-                        'high': float(row['high']),
-                        'low': float(row['low']),
-                        'close': float(row['close']),
-                        'volume': float(row['volume']) if 'volume' in row else 0,
-                        'amount': float(row['amount']) if 'amount' in row else 0
-                    })
+        # else: no start_date and not future → no actual data
         
         # Create chart - pass historical data start position
-        if start_date:
+        if predict_future:
+            # Future mode: show the last 400 candles as historical
+            historical_start_idx = len(df) - lookback
+        elif start_date:
             # Custom time period: find starting position of historical data in original df
             start_dt = pd.to_datetime(start_date)
             mask = df['timestamps'] >= start_dt
@@ -610,11 +620,40 @@ def predict():
         except Exception as e:
             print(f"Failed to save prediction results: {e}")
         
+        # Compute interval in hours for the frontend signal panel
+        time_diff_h = (df['timestamps'].iloc[-1] - df['timestamps'].iloc[-2]).total_seconds() / 3600
+
+        # Build prediction_data list with timestamps for the frontend
+        prediction_data = []
+        for i, (_, row) in enumerate(pred_df.iterrows()):
+            if i < len(y_timestamp):
+                ts_val = y_timestamp.iloc[i]
+                # Always produce a proper ISO-8601 string so JS new Date() never gets Invalid Date
+                if hasattr(ts_val, 'isoformat'):
+                    ts_str = ts_val.isoformat()
+                else:
+                    ts_str = str(ts_val).replace(' ', 'T')
+            else:
+                ts_str = None
+            prediction_data.append({
+                'timestamp': ts_str,
+                'open':  float(row['open']),
+                'high':  float(row['high']),
+                'low':   float(row['low']),
+                'close': float(row['close']),
+            })
+
+        # Current price = last close in the input window
+        current_price = float(x_df['close'].iloc[-1])
+
         return jsonify({
             'success': True,
             'prediction_type': prediction_type,
             'chart': chart_json,
             'prediction_results': prediction_results,
+            'prediction_data': prediction_data,
+            'current_price': current_price,
+            'interval_hours': time_diff_h,
             'actual_data': actual_data,
             'has_comparison': len(actual_data) > 0,
             'message': f'Prediction completed, generated {pred_len} prediction points' + (f', including {len(actual_data)} actual data points for comparison' if len(actual_data) > 0 else '')

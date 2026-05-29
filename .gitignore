@@ -74,3 +74,9 @@ venv.bak/
 temp/
 tmp/
 .python-version
+
+# Market data files (downloaded at runtime)
+data/
+
+# WebUI runtime output
+webui/prediction_results/
