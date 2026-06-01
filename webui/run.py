@@ -21,14 +21,23 @@ def check_dependencies():
         return True
     except ImportError as e:
         print(f"❌ Missing dependency: {e}")
-        print("Please run: pip install -r requirements.txt")
+        print("Please run: uv pip install -r requirements.txt")
+        return False
+
+
+def check_uv_installed():
+    """Check if uv package manager is available."""
+    try:
+        subprocess.check_call(["uv", "--version"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        return True
+    except (subprocess.CalledProcessError, FileNotFoundError):
         return False
 
 def install_dependencies():
-    """Install dependencies"""
-    print("Installing dependencies...")
+    """Install dependencies with uv."""
+    print("Installing dependencies with uv...")
     try:
-        subprocess.check_call([sys.executable, "-m", "pip", "install", "-r", "requirements.txt"])
+        subprocess.check_call(["uv", "pip", "install", "-r", "requirements.txt"])
         print("✅ Dependencies installation completed")
         return True
     except subprocess.CalledProcessError:
@@ -39,6 +48,11 @@ def main():
     """Main function"""
     print("🚀 Starting Kronos Web UI...")
     print("=" * 50)
+
+    if not check_uv_installed():
+        print("❌ uv is not installed.")
+        print("Install uv first: https://docs.astral.sh/uv/getting-started/installation/")
+        return
     
     # Check dependencies
     if not check_dependencies():
@@ -47,7 +61,7 @@ def main():
             if not install_dependencies():
                 return
         else:
-            print("Please manually install dependencies and retry")
+            print("Please manually install dependencies with uv and retry")
             return
     
     # Check model availability

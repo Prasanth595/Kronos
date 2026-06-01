@@ -5,9 +5,10 @@
 echo "🚀 Starting Kronos Web UI..."
 echo "================================"
 
-# Check if Python is installed
-if ! command -v python3 &> /dev/null; then
-    echo "❌ Python3 not installed, please install Python3 first"
+# Check if uv is installed
+if ! command -v uv &> /dev/null; then
+    echo "❌ uv is not installed. Please install uv first:"
+    echo "   https://docs.astral.sh/uv/getting-started/installation/"
     exit 1
 fi
 
@@ -19,17 +20,24 @@ fi
 
 # Check dependencies
 echo "📦 Checking dependencies..."
-if ! python3 -c "import flask, flask_cors, pandas, numpy, plotly" &> /dev/null; then
-    echo "⚠️  Missing dependencies, installing..."
-    pip3 install -r requirements.txt
+
+# Create local virtual environment if it does not exist
+if [ ! -d ".venv" ]; then
+    echo "🛠️  Creating virtual environment with uv..."
+    uv venv
     if [ $? -ne 0 ]; then
-        echo "❌ Dependencies installation failed"
+        echo "❌ Failed to create virtual environment"
         exit 1
     fi
-    echo "✅ Dependencies installation completed"
-else
-    echo "✅ All dependencies installed"
 fi
+
+echo "⚠️  Syncing dependencies with uv..."
+uv pip install -r requirements.txt
+if [ $? -ne 0 ]; then
+    echo "❌ Dependencies installation failed"
+    exit 1
+fi
+echo "✅ Dependencies installation completed"
 
 # Start application
 echo "🌐 Starting Web server..."
@@ -37,4 +45,4 @@ echo "Access URL: http://localhost:7070"
 echo "Press Ctrl+C to stop server"
 echo ""
 
-python3 app.py
+uv run app.py
