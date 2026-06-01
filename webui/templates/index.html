@@ -494,6 +494,37 @@
                     📁 Load Data
                 </button>
 
+                <hr style="margin: 20px 0; border: 1px solid #e2e8f0;">
+
+                <!-- US Stock Quick Prediction -->
+                <div class="form-group">
+                    <label for="us-symbol">US Ticker Symbol:</label>
+                    <input type="text" id="us-symbol" value="SMCI" placeholder="e.g. SMCI, AAPL, NVDA">
+                    <small class="form-text">Fetches daily data from Yahoo Finance</small>
+                </div>
+
+                <div class="form-group">
+                    <label for="us-pred-len">US Prediction Days:</label>
+                    <input type="number" id="us-pred-len" value="5" min="1" max="30">
+                    <small class="form-text">Number of future business days to forecast</small>
+                </div>
+
+                <div class="form-group">
+                    <label for="us-history-period">History Period:</label>
+                    <select id="us-history-period">
+                        <option value="1y">1 year</option>
+                        <option value="2y">2 years</option>
+                        <option value="5y" selected>5 years</option>
+                        <option value="10y">10 years</option>
+                        <option value="max">Max</option>
+                    </select>
+                    <small class="form-text">Historical range pulled from Yahoo Finance</small>
+                </div>
+
+                <button id="predict-us-btn" class="btn btn-warning" disabled>
+                    🇺🇸 Predict US Stock (Yahoo)
+                </button>
+
                 <!-- Data Information Display -->
                 <div id="data-info" class="data-info" style="display: none;">
                     <h3>📊 Data Information</h3>
@@ -674,7 +705,8 @@
                     console.log('✅ Available models loaded successfully:', availableModels);
                 } else {
                     console.warn('⚠️ Kronos model library not available');
-                    showStatus('warning', 'Kronos model library not available, will use simulated prediction');
+                    const importError = response.data.model_import_error || 'Unknown import error';
+                    showStatus('warning', `Kronos model library not available: ${importError}`);
                 }
             } catch (error) {
                 console.error('❌ Failed to load available models:', error);
@@ -719,6 +751,7 @@
                     showStatus('success', response.data.message);
                     updateModelStatus();
                     document.getElementById('predict-btn').disabled = false;
+                    document.getElementById('predict-us-btn').disabled = false;
                     console.log('✅ Model loaded successfully:', response.data.model_info);
                 } else {
                     showStatus('error', response.data.error);
@@ -1096,11 +1129,67 @@
             }
         }
 
+        // Start US stock prediction from Yahoo Finance
+        async function startUsStockPrediction() {
+            if (!modelLoaded) {
+                showStatus('error', 'Please load model first');
+                return;
+            }
+
+            const symbol = document.getElementById('us-symbol').value.trim().toUpperCase();
+            const predLen = parseInt(document.getElementById('us-pred-len').value || '5');
+            const historyPeriod = document.getElementById('us-history-period').value;
+            const lookback = parseInt(document.getElementById('lookback').value);
+            const temperature = parseFloat(document.getElementById('temperature').value);
+            const topP = parseFloat(document.getElementById('top-p').value);
+            const sampleCount = parseInt(document.getElementById('sample-count').value || '3');
+
+            if (!symbol) {
+                showStatus('error', 'Please input a US ticker symbol');
+                return;
+            }
+
+            try {
+                showLoading(true);
+                document.getElementById('predict-us-btn').disabled = true;
+
+                const response = await axios.post('/api/predict-us-stock', {
+                    symbol: symbol,
+                    pred_len: predLen,
+                    lookback: lookback,
+                    history_period: historyPeriod,
+                    temperature: temperature,
+                    top_p: topP,
+                    sample_count: sampleCount,
+                    scenario_count: Math.max(3, sampleCount)
+                });
+
+                if (response.data.success) {
+                    displayPredictionResult(response.data);
+                    showStatus('success', response.data.message);
+                } else {
+                    showStatus('error', response.data.error);
+                }
+            } catch (error) {
+                console.error('❌ US stock prediction failed:', error);
+                showStatus('error', `US stock prediction failed: ${error.response?.data?.error || error.message}`);
+            } finally {
+                showLoading(false);
+                document.getElementById('predict-us-btn').disabled = false;
+            }
+        }
+
         // Display prediction results
         function displayPredictionResult(result) {
             // Display chart
             const chartData = JSON.parse(result.chart);
             Plotly.newPlot('chart', chartData.data, chartData.layout);
+
+            // US stock probabilistic mode has no in-sample comparison table.
+            if (result.mode === 'us_stock') {
+                document.getElementById('comparison-section').style.display = 'none';
+                return;
+            }
             
             // Display comparison analysis (if actual data exists)
             if (result.has_comparison) {
@@ -1196,6 +1285,9 @@
             
             // Prediction button
             document.getElementById('predict-btn').addEventListener('click', startPrediction);
+
+            // US stock prediction button
+            document.getElementById('predict-us-btn').addEventListener('click', startUsStockPrediction);
             
             // Prediction quality parameter sliders
             document.getElementById('temperature').addEventListener('input', function() {
