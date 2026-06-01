@@ -7,17 +7,21 @@ Web user interface for Kronos financial prediction model, providing intuitive gr
 - **Multi-format data support**: Supports CSV, Feather and other financial data formats
 - **Smart time window**: Fixed 400+120 data point time window slider selection
 - **Real model prediction**: Integrated real Kronos model, supports multiple model sizes
+- **US stock mode**: Enter a Yahoo ticker (for example SMCI/AAPL/NVDA) and forecast future business days directly
 - **Prediction quality control**: Adjustable temperature, nucleus sampling, sample count and other parameters
 - **Multi-device support**: Supports CPU, CUDA, MPS and other computing devices
 - **Comparison analysis**: Detailed comparison between prediction results and actual data
 - **K-line chart display**: Professional financial K-line chart display
+- **Probabilistic forecast chart**: Historical line + mean forecast + min-max range + volume panel
 
 ## 🚀 Quick Start
 
 ### Method 1: Start with Python script
 ```bash
 cd webui
-python run.py
+uv venv
+uv pip install -r requirements.txt
+uv run run.py
 ```
 
 ### Method 2: Start with Shell script
@@ -30,7 +34,9 @@ chmod +x start.sh
 ### Method 3: Start Flask application directly
 ```bash
 cd webui
-python app.py
+uv venv
+uv pip install -r requirements.txt
+uv run app.py
 ```
 
 After successful startup, visit http://localhost:7070
@@ -43,6 +49,18 @@ After successful startup, visit http://localhost:7070
 4. **Select time window**: Use slider to select 400+120 data point time range
 5. **Start prediction**: Click prediction button to generate results
 6. **View results**: View prediction results in charts and tables
+
+### US Stock Prediction (Yahoo Finance)
+
+1. Load Kronos model first
+2. Enter ticker symbol in the US stock section (for example `SMCI`)
+3. Set prediction days and history period
+4. Click **Predict US Stock (Yahoo)**
+5. View probabilistic chart with:
+	- Historical close price
+	- Mean forecast path
+	- Forecast uncertainty band (min-max)
+	- Historical and forecasted volume
 
 ## 🔧 Prediction Quality Parameters
 
@@ -112,7 +130,7 @@ The system automatically provides comparison analysis between prediction results
 
 ### Common Issues
 1. **Port occupied**: Modify port number in app.py
-2. **Missing dependencies**: Run `pip install -r requirements.txt`
+2. **Missing dependencies**: Run `uv pip install -r requirements.txt`
 3. **Model loading failed**: Check network connection and model ID
 4. **Data format error**: Ensure data column names and format are correct
 
