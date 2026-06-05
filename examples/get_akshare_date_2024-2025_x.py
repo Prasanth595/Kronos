@@ -9,7 +9,7 @@ import random
 
 def get_stock_market(stock_code):
     """
-    根据股票代码判断市场类型
+    根据股票代码判断市场类型j
     返回: 市场前缀 '0'-深交所, '1'-上交所
     """
     if stock_code.startswith(('0', '2', '3')):
