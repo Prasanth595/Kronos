@@ -1,0 +1,9 @@
+# Example cTrader extension configuration.
+# No credentials, API keys, account IDs, or live endpoints belong in this file.
+
+enabled: false
+mode: offline
+symbols:
+  - EURUSD
+timeframes:
+  - m5

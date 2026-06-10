@@ -1,0 +1,4 @@
+# Extension-only runtime/test dependencies.
+# pandas is already required by upstream Kronos; repeated here for clarity.
+pandas
+pytest

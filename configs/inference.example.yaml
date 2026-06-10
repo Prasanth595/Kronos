@@ -1,0 +1,9 @@
+# Example local inference configuration.
+# Model paths are placeholders and are not loaded by the scaffold.
+
+model_path: ./local_models/kronos-small
+tokenizer_path: ./local_models/kronos-tokenizer-base
+device: cpu
+max_context: 512
+pred_len: 120
+sample_count: 1

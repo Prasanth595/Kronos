@@ -1,0 +1,5 @@
+# Example signal configuration.
+# These rules are placeholders and do not execute trades.
+
+close_change_threshold: 0.001
+default_action: WAIT
