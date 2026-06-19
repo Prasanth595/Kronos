@@ -6,6 +6,22 @@ import torch
 import torch.distributed as dist
 
 
+def _select_ddp_backend() -> str:
+    explicit = os.environ.get("KRONOS_DDP_BACKEND") or os.environ.get("DIST_BACKEND")
+    if explicit:
+        return explicit.lower()
+    if torch.cuda.is_available() and dist.is_nccl_available():
+        return "nccl"
+    return "gloo"
+
+
+def _env_bool(name: str, default: bool = False) -> bool:
+    value = os.environ.get(name)
+    if value in (None, ""):
+        return default
+    return value.lower() not in {"0", "false", "no", "off"}
+
+
 def setup_ddp():
     """
     Initializes the distributed data parallel environment.
@@ -19,15 +35,27 @@ def setup_ddp():
     """
     if not dist.is_available():
         raise RuntimeError("torch.distributed is not available.")
+    if _env_bool("KRONOS_DISABLE_DDP", False):
+        local_rank = int(os.environ.get("LOCAL_RANK", "0"))
+        if torch.cuda.is_available():
+            torch.cuda.set_device(local_rank)
+        print(
+            "[DDP Setup] Disabled by KRONOS_DISABLE_DDP=1; "
+            f"using local_rank={local_rank}, device={torch.cuda.current_device() if torch.cuda.is_available() else 'cpu'}"
+        )
+        return 0, 1, local_rank
 
-    dist.init_process_group(backend="nccl")
+    backend = _select_ddp_backend()
+    dist.init_process_group(backend=backend)
     rank = int(os.environ["RANK"])
     world_size = int(os.environ["WORLD_SIZE"])
     local_rank = int(os.environ["LOCAL_RANK"])
-    torch.cuda.set_device(local_rank)
+    if torch.cuda.is_available():
+        torch.cuda.set_device(local_rank)
     print(
         f"[DDP Setup] Global Rank: {rank}/{world_size}, "
-        f"Local Rank (GPU): {local_rank} on device {torch.cuda.current_device()}"
+        f"Local Rank: {local_rank}, backend={backend}, "
+        f"device={torch.cuda.current_device() if torch.cuda.is_available() else 'cpu'}"
     )
     return rank, world_size, local_rank
 

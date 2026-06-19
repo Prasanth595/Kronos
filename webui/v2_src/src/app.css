@@ -1,0 +1,21 @@
+/* =================================================================
+   Kronos Dashboard — official design system (human-approachable, light+dark)
+   ================================================================= */
+
+/* 1) 디자인 토큰 + 컴포넌트 — @import 는 다른 statement 보다 먼저 */
+@import './styles/core.css';
+@import './styles/components.css';
+
+/* 2) Tailwind utilities (margin/padding/flex/grid 등 layout 유틸만 활용) */
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* 3) body 보강 (core.css 가 이미 설정하지만 Tailwind preflight 와 충돌 방지) */
+body {
+  font-family: var(--font-body);
+  font-size: var(--t-body);
+  line-height: 1.55;
+  color: var(--fg);
+  background: var(--bg);
+}

@@ -2,6 +2,7 @@ import os
 import sys
 import json
 import time
+from pathlib import Path
 from time import gmtime, strftime
 import torch.distributed as dist
 import torch
@@ -9,12 +10,19 @@ from torch.utils.data import DataLoader
 from torch.utils.data.distributed import DistributedSampler
 from torch.nn.parallel import DistributedDataParallel as DDP
 
-import comet_ml
+try:
+    import comet_ml
+except ImportError:  # pragma: no cover - depends on optional local package
+    comet_ml = None
 
-# Ensure project root is in path
-sys.path.append('../')
+# Ensure project root is in path regardless of the current working directory.
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
 from config import Config
 from dataset import QlibDataset
+from model_source import resolve_model_source
+from predictor_handoff import apply_predictor_handoff_overrides
 from model.kronos import KronosTokenizer, Kronos
 # Import shared utilities
 from utils.training_utils import (
@@ -43,15 +51,25 @@ def create_dataloaders(config: dict, rank: int, world_size: int):
     valid_dataset = QlibDataset('val')
     print(f"[Rank {rank}] Train dataset size: {len(train_dataset)}, Validation dataset size: {len(valid_dataset)}")
 
-    train_sampler = DistributedSampler(train_dataset, num_replicas=world_size, rank=rank, shuffle=True)
-    val_sampler = DistributedSampler(valid_dataset, num_replicas=world_size, rank=rank, shuffle=False)
+    use_distributed_sampler = world_size > 1 and dist.is_available() and dist.is_initialized()
+    train_sampler = (
+        DistributedSampler(train_dataset, num_replicas=world_size, rank=rank, shuffle=True)
+        if use_distributed_sampler
+        else None
+    )
+    val_sampler = (
+        DistributedSampler(valid_dataset, num_replicas=world_size, rank=rank, shuffle=False)
+        if use_distributed_sampler
+        else None
+    )
 
+    drop_last = config.get("dataset_sample_mode") != "full_sequential"
     train_loader = DataLoader(
-        train_dataset, batch_size=config['batch_size'], sampler=train_sampler,
-        num_workers=config.get('num_workers', 2), pin_memory=True, drop_last=True
+        train_dataset, batch_size=config['batch_size'], sampler=train_sampler, shuffle=train_sampler is None,
+        num_workers=config.get('num_workers', 2), pin_memory=True, drop_last=drop_last
     )
     val_loader = DataLoader(
-        valid_dataset, batch_size=config['batch_size'], sampler=val_sampler,
+        valid_dataset, batch_size=config['batch_size'], sampler=val_sampler, shuffle=False,
         num_workers=config.get('num_workers', 2), pin_memory=True, drop_last=False
     )
     return train_loader, val_loader, train_dataset, valid_dataset
@@ -87,7 +105,8 @@ def train_model(model, tokenizer, device, config, save_dir, logger, rank, world_
     for epoch_idx in range(config['epochs']):
         epoch_start_time = time.time()
         model.train()
-        train_loader.sampler.set_epoch(epoch_idx)
+        if hasattr(train_loader.sampler, "set_epoch"):
+            train_loader.sampler.set_epoch(epoch_idx)
 
         train_dataset.set_epoch_seed(epoch_idx * 10000 + rank)
         valid_dataset.set_epoch_seed(0)
@@ -106,7 +125,8 @@ def train_model(model, tokenizer, device, config, save_dir, logger, rank, world_
 
             # Forward pass and loss calculation
             logits = model(token_in[0], token_in[1], batch_x_stamp[:, :-1, :])
-            loss, s1_loss, s2_loss = model.module.head.compute_loss(logits[0], logits[1], token_out[0], token_out[1])
+            loss_model = model.module if hasattr(model, "module") else model
+            loss, s1_loss, s2_loss = loss_model.head.compute_loss(logits[0], logits[1], token_out[0], token_out[1])
 
             # Backward pass and optimization
             optimizer.zero_grad()
@@ -145,18 +165,25 @@ def train_model(model, tokenizer, device, config, save_dir, logger, rank, world_
                 token_out = [token_seq_0[:, 1:], token_seq_1[:, 1:]]
 
                 logits = model(token_in[0], token_in[1], batch_x_stamp[:, :-1, :])
-                val_loss, _, _ = model.module.head.compute_loss(logits[0], logits[1], token_out[0], token_out[1])
+                loss_model = model.module if hasattr(model, "module") else model
+                val_loss, _, _ = loss_model.head.compute_loss(logits[0], logits[1], token_out[0], token_out[1])
 
                 tot_val_loss_sum_rank += val_loss.item()
                 val_batches_processed_rank += 1
 
         # Reduce validation metrics
-        val_loss_sum_tensor = torch.tensor(tot_val_loss_sum_rank, device=device)
-        val_batches_tensor = torch.tensor(val_batches_processed_rank, device=device)
-        dist.all_reduce(val_loss_sum_tensor, op=dist.ReduceOp.SUM)
-        dist.all_reduce(val_batches_tensor, op=dist.ReduceOp.SUM)
+        if dist.is_available() and dist.is_initialized():
+            val_loss_sum_tensor = torch.tensor(tot_val_loss_sum_rank, device=device)
+            val_batches_tensor = torch.tensor(val_batches_processed_rank, device=device)
+            dist.all_reduce(val_loss_sum_tensor, op=dist.ReduceOp.SUM)
+            dist.all_reduce(val_batches_tensor, op=dist.ReduceOp.SUM)
+            val_loss_sum = val_loss_sum_tensor.item()
+            val_batches = val_batches_tensor.item()
+        else:
+            val_loss_sum = tot_val_loss_sum_rank
+            val_batches = val_batches_processed_rank
 
-        avg_val_loss = val_loss_sum_tensor.item() / val_batches_tensor.item() if val_batches_tensor.item() > 0 else 0
+        avg_val_loss = val_loss_sum / val_batches if val_batches > 0 else 0
 
         # --- End of Epoch Summary & Checkpointing (Master Process Only) ---
         if rank == 0:
@@ -170,10 +197,12 @@ def train_model(model, tokenizer, device, config, save_dir, logger, rank, world_
             if avg_val_loss < best_val_loss:
                 best_val_loss = avg_val_loss
                 save_path = f"{save_dir}/checkpoints/best_model"
-                model.module.save_pretrained(save_path)
+                save_model = model.module if hasattr(model, "module") else model
+                save_model.save_pretrained(save_path)
                 print(f"Best model saved to {save_path} (Val Loss: {best_val_loss:.4f})")
 
-        dist.barrier()
+        if dist.is_available() and dist.is_initialized():
+            dist.barrier()
 
     dt_result['best_val_loss'] = best_val_loss
     return dt_result
@@ -182,7 +211,7 @@ def train_model(model, tokenizer, device, config, save_dir, logger, rank, world_
 def main(config: dict):
     """Main function to orchestrate the DDP training process."""
     rank, world_size, local_rank = setup_ddp()
-    device = torch.device(f"cuda:{local_rank}")
+    device = torch.device(f"cuda:{local_rank}" if torch.cuda.is_available() else "cpu")
     set_seed(config['seed'], rank)
 
     save_dir = os.path.join(config['save_path'], config['predictor_save_folder_name'])
@@ -197,6 +226,8 @@ def main(config: dict):
             'world_size': world_size,
         }
         if config['use_comet']:
+            if comet_ml is None:
+                raise RuntimeError("KRONOS_USE_COMET is enabled but comet_ml is not installed.")
             comet_logger = comet_ml.Experiment(
                 api_key=config['comet_config']['api_key'],
                 project_name=config['comet_config']['project_name'],
@@ -207,18 +238,35 @@ def main(config: dict):
             comet_logger.log_parameters(config)
             print("Comet Logger Initialized.")
 
-    dist.barrier()
+    if dist.is_available() and dist.is_initialized():
+        dist.barrier()
 
     # Model Initialization
-    tokenizer = KronosTokenizer.from_pretrained(config['finetuned_tokenizer_path'])
+    tokenizer_source = resolve_model_source(
+        config.get('finetuned_tokenizer_path', ''),
+        config.get('pretrained_tokenizer_path', ''),
+        "Tokenizer",
+        rank,
+    )
+    predictor_source = resolve_model_source(
+        config.get('finetuned_predictor_path', ''),
+        config.get('pretrained_predictor_path', ''),
+        "Predictor",
+        rank,
+    )
+
+    tokenizer = KronosTokenizer.from_pretrained(tokenizer_source)
     tokenizer.eval().to(device)
 
-    model = Kronos.from_pretrained(config['pretrained_predictor_path'])
+    model = Kronos.from_pretrained(predictor_source)
     model.to(device)
-    model = DDP(model, device_ids=[local_rank], find_unused_parameters=False)
+    if dist.is_available() and dist.is_initialized() and world_size > 1:
+        ddp_kwargs = {"device_ids": [local_rank]} if torch.cuda.is_available() else {}
+        model = DDP(model, find_unused_parameters=False, **ddp_kwargs)
 
     if rank == 0:
-        print(f"Predictor Model Size: {get_model_size(model.module)}")
+        size_model = model.module if hasattr(model, "module") else model
+        print(f"Predictor Model Size: {get_model_size(size_model)}")
 
     # Start Training
     dt_result = train_model(
@@ -237,8 +285,15 @@ def main(config: dict):
 
 if __name__ == '__main__':
     # Usage: torchrun --standalone --nproc_per_node=NUM_GPUS train_predictor.py
-    if "WORLD_SIZE" not in os.environ:
+    disable_ddp = os.getenv("KRONOS_DISABLE_DDP", "").lower() in {"1", "true", "yes", "on"}
+    if "WORLD_SIZE" not in os.environ and not disable_ddp:
         raise RuntimeError("This script must be launched with `torchrun`.")
 
     config_instance = Config()
+    handoff = apply_predictor_handoff_overrides(config_instance)
+    if handoff.get("applied"):
+        print(
+            "Predictor handoff overrides applied: "
+            f"{handoff['applied']} from {handoff.get('path')}"
+        )
     main(config_instance.__dict__)

@@ -120,6 +120,11 @@ class CustomFinetuneConfig:
 
         data_config = self.loader.get_data_config()
         self.data_path = data_config.get('data_path')
+        self.dataset_type = data_config.get('dataset_type', 'csv')
+        self.group_columns = data_config.get('group_columns', ['symbol', 'session'])
+        self.sample_stride = data_config.get('sample_stride', 1)
+        self.max_samples = data_config.get('max_samples', None)
+        self.normalize_using = data_config.get('normalize_using', 'lookback')
         self.lookback_window = data_config.get('lookback_window', 512)
         self.predict_window = data_config.get('predict_window', 48)
         self.max_context = data_config.get('max_context', 512)
@@ -193,6 +198,11 @@ class CustomFinetuneConfig:
 
         return {
             'data_path': self.data_path,
+            'dataset_type': self.dataset_type,
+            'group_columns': self.group_columns,
+            'sample_stride': self.sample_stride,
+            'max_samples': self.max_samples,
+            'normalize_using': self.normalize_using,
             'lookback_window': self.lookback_window,
             'predict_window': self.predict_window,
             'max_context': self.max_context,
@@ -219,6 +229,11 @@ class CustomFinetuneConfig:
 
         return {
             'data_path': self.data_path,
+            'dataset_type': self.dataset_type,
+            'group_columns': self.group_columns,
+            'sample_stride': self.sample_stride,
+            'max_samples': self.max_samples,
+            'normalize_using': self.normalize_using,
             'lookback_window': self.lookback_window,
             'predict_window': self.predict_window,
             'max_context': self.max_context,
@@ -249,6 +264,8 @@ class CustomFinetuneConfig:
         print("=" * 60)
         print(f"Experiment name: {self.exp_name}")
         print(f"Data path: {self.data_path}")
+        print(f"Dataset type: {self.dataset_type}")
+        print(f"Group columns: {self.group_columns}")
         print(f"Lookback window: {self.lookback_window}")
         print(f"Predict window: {self.predict_window}")
         print(f"Tokenizer training epochs: {self.tokenizer_epochs}")

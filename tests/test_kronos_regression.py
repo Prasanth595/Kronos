@@ -1,11 +1,35 @@
+import os
 import random
+import subprocess
+import sys
 from pathlib import Path
 
 import numpy as np
 import pandas as pd
 import pytest
-import torch
 from tqdm import tqdm
+
+if os.name == "nt" and os.environ.get("KRONOS_RUN_TORCH_TESTS") != "1":
+    pytest.skip(
+        "torch regression tests are opt-in on Windows; set KRONOS_RUN_TORCH_TESTS=1 "
+        "in a verified PyTorch environment to run them",
+        allow_module_level=True,
+    )
+
+_TORCH_PROBE = subprocess.run(
+    [sys.executable, "-c", "import torch"],
+    capture_output=True,
+    text=True,
+    timeout=30,
+)
+if _TORCH_PROBE.returncode != 0:
+    pytest.skip(
+        "torch is installed but cannot be initialized in this environment: "
+        f"{(_TORCH_PROBE.stderr or _TORCH_PROBE.stdout).strip()}",
+        allow_module_level=True,
+    )
+
+import torch
 
 from model import Kronos, KronosPredictor, KronosTokenizer
 

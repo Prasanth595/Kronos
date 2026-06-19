@@ -3,11 +3,11 @@ import sys
 import json
 import time
 import random
-import numpy as np
 import torch
 import torch.nn.functional as F
 from torch.utils.data import DataLoader
 from torch.utils.data.distributed import DistributedSampler
+import numpy as np
 from time import gmtime, strftime
 import datetime
 import logging
@@ -15,9 +15,12 @@ from logging.handlers import RotatingFileHandler
 import torch.distributed as dist
 from torch.nn.parallel import DistributedDataParallel as DDP
 
-sys.path.append("../")
+PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), os.pardir))
+if PROJECT_ROOT not in sys.path:
+    sys.path.insert(0, PROJECT_ROOT)
+
 from model import KronosTokenizer
-from finetune_base_model import CustomKlineDataset
+from finetune_base_model import build_dataset_from_config
 from config_loader import CustomFinetuneConfig
 
 
@@ -94,29 +97,9 @@ def create_dataloaders(config):
     if not dist.is_available() or not dist.is_initialized() or dist.get_rank() == 0:
         print("Creating tokenizer training data loaders...")
     
-    train_dataset = CustomKlineDataset(
-        data_path=config.data_path,
-        data_type="train",
-        lookback_window=config.lookback_window,
-        predict_window=config.predict_window,
-        clip=config.clip,
-        seed=config.seed,
-        train_ratio=config.train_ratio,
-        val_ratio=config.val_ratio,
-        test_ratio=config.test_ratio
-    )
+    train_dataset = build_dataset_from_config(config, data_type="train", seed=config.seed)
     
-    val_dataset = CustomKlineDataset(
-        data_path=config.data_path,
-        data_type="val",
-        lookback_window=config.lookback_window,
-        predict_window=config.predict_window,
-        clip=config.clip,
-        seed=config.seed + 1,
-        train_ratio=config.train_ratio,
-        val_ratio=config.val_ratio,
-        test_ratio=config.test_ratio
-    )
+    val_dataset = build_dataset_from_config(config, data_type="val", seed=config.seed + 1)
     
     use_ddp = dist.is_available() and dist.is_initialized()
     train_sampler = DistributedSampler(train_dataset, num_replicas=dist.get_world_size(), rank=dist.get_rank(), shuffle=True) if use_ddp else None

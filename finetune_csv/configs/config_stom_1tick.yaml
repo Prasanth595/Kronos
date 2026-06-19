@@ -1,0 +1,64 @@
+# STOM 1tick SQLite -> grouped Kronos CSV fine-tuning template.
+# 1) Inspect/export DB:
+#    python finetune_csv/prepare_stom_1tick.py inspect --db _database/stock_tick_back.db --lookback-window 300 --predict-window 60
+#    python finetune_csv/prepare_stom_1tick.py export  --db _database/stock_tick_back.db --output finetune_csv/data/stom_1tick_kline.csv --lookback-window 300 --predict-window 60 --max-tables 100 --price-mode close_only
+# 2) Train:
+#    python finetune_csv/train_sequential.py --config finetune_csv/configs/config_stom_1tick.yaml
+
+data:
+  data_path: "finetune_csv/data/stom_1tick_kline.csv"
+  dataset_type: "stom_tick"       # grouped dataset: prevents cross-symbol/cross-day windows
+  group_columns: ["symbol", "session"]
+  lookback_window: 300            # 300 seconds = last 5 minutes
+  predict_window: 60              # 60 seconds = next 1 minute
+  max_context: 512                # Kronos-small/base context. Kronos-mini can use 2048.
+  clip: 5.0
+  sample_stride: 1                # Increase to reduce samples/training time.
+  max_samples: null               # Set e.g. 200000 for a fast pilot run.
+  normalize_using: "lookback"     # Avoids future leakage from prediction window.
+  train_ratio: 0.85               # Split by symbol-session groups, not raw rows.
+  val_ratio: 0.15
+  test_ratio: 0.0
+
+training:
+  tokenizer_epochs: 0             # Keep pretrained tokenizer by default.
+  basemodel_epochs: 3             # Pilot value; increase after smoke test.
+  batch_size: 32
+  log_interval: 50
+  num_workers: 4
+  seed: 42
+  tokenizer_learning_rate: 0.0002
+  predictor_learning_rate: 0.000001
+  adam_beta1: 0.9
+  adam_beta2: 0.95
+  adam_weight_decay: 0.1
+  accumulation_steps: 1
+
+model_paths:
+  # Replace these with local downloaded HuggingFace model directories, or leave model IDs if your environment can fetch.
+  pretrained_tokenizer: "NeoQuasar/Kronos-Tokenizer-base"
+  pretrained_predictor: "NeoQuasar/Kronos-small"
+  exp_name: "stom_1tick_lookback300_pred60"
+  base_path: "finetune_csv/finetuned"
+  base_save_path: ""
+  finetuned_tokenizer: ""
+  tokenizer_save_name: "tokenizer"
+  basemodel_save_name: "basemodel"
+
+experiment:
+  name: "stom_1tick_kronos_finetune"
+  description: "Fine-tune Kronos on STOM opening-session 1tick/1sec grouped data"
+  use_comet: false
+  train_tokenizer: false          # Use pretrained tokenizer; train predictor only.
+  train_basemodel: true
+  skip_existing: false
+  pre_trained_tokenizer: true
+  pre_trained_predictor: true
+
+device:
+  use_cuda: true
+  device_id: 0
+
+distributed:
+  use_ddp: false
+  backend: "nccl"

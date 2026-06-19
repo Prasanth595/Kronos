@@ -1,0 +1,242 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>STOM 강화학습 공부용 가이드</title>
+<style>
+  :root{
+    --bg:#0f1115; --card:#171a21; --card2:#1e222c; --ink:#e7ebf2; --muted:#9aa4b2;
+    --line:#2a2f3a; --accent:#4f9cf9; --accent2:#14b8a6; --warn:#f59e0b; --bad:#ef4444; --good:#22c55e;
+    --buy:#22c55e; --sell:#ef4444; --hold:#94a3b8;
+  }
+  @media (prefers-color-scheme: light){
+    :root{ --bg:#f6f8fc; --card:#ffffff; --card2:#f0f3f9; --ink:#0f1722; --muted:#5a6675; --line:#e2e8f0; }
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.7 system-ui,"Segoe UI","Malgun Gothic",sans-serif;}
+  .wrap{max-width:920px;margin:0 auto;padding:32px 20px 80px;}
+  h1{font-size:30px;line-height:1.25;margin:0 0 6px;}
+  h2{font-size:22px;margin:42px 0 12px;padding-top:14px;border-top:1px solid var(--line);}
+  h3{font-size:17px;margin:24px 0 8px;color:var(--accent);}
+  p{margin:10px 0;}
+  code{background:var(--card2);padding:2px 6px;border-radius:5px;font-family:"JetBrains Mono",Consolas,monospace;font-size:.9em;}
+  .lead{color:var(--muted);font-size:17px;}
+  .tag{display:inline-block;font-size:12px;font-weight:700;padding:3px 9px;border-radius:999px;background:var(--card2);color:var(--muted);border:1px solid var(--line);margin-right:6px;}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:18px 20px;margin:16px 0;}
+  .analogy{background:linear-gradient(135deg,rgba(79,156,249,.12),transparent);border-left:4px solid var(--accent);border-radius:10px;padding:14px 18px;margin:14px 0;}
+  .analogy b{color:var(--accent);}
+  .honest{background:linear-gradient(135deg,rgba(245,158,11,.13),transparent);border-left:4px solid var(--warn);border-radius:10px;padding:14px 18px;margin:14px 0;}
+  .honest b{color:var(--warn);}
+  table{width:100%;border-collapse:collapse;margin:14px 0;font-size:14px;}
+  th,td{border:1px solid var(--line);padding:8px 10px;text-align:left;vertical-align:top;}
+  th{background:var(--card2);font-weight:700;}
+  td.used{color:var(--good);font-weight:700;}
+  td.unused{color:var(--bad);font-weight:700;}
+  .toc{columns:2;font-size:14px;}
+  .toc a{color:var(--accent);text-decoration:none;}
+  .grid2{display:grid;grid-template-columns:1fr 1fr;gap:14px;}
+  @media(max-width:680px){.grid2{grid-template-columns:1fr}.toc{columns:1}}
+  .pill{display:inline-block;padding:4px 10px;border-radius:8px;font-weight:700;font-size:13px;}
+  .pill.buy{background:rgba(34,197,94,.15);color:var(--buy);}
+  .pill.sell{background:rgba(239,68,68,.15);color:var(--sell);}
+  .pill.hold{background:rgba(148,163,184,.18);color:var(--hold);}
+  .flow{display:flex;flex-wrap:wrap;gap:8px;align-items:center;font-size:13px;margin:10px 0;}
+  .flow .step{background:var(--card2);border:1px solid var(--line);border-radius:8px;padding:7px 11px;}
+  .flow .arrow{color:var(--muted);}
+  .mdp{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin:14px 0;}
+  @media(max-width:680px){.mdp{grid-template-columns:1fr 1fr}}
+  .mdp .box{background:var(--card2);border:1px solid var(--line);border-radius:10px;padding:12px;text-align:center;}
+  .mdp .box .k{font-size:12px;color:var(--muted);}
+  .mdp .box .v{font-weight:700;margin-top:4px;font-size:14px;}
+  .q{background:var(--card);border:1px dashed var(--accent);border-radius:10px;padding:12px 16px;margin:10px 0;}
+  .q summary{cursor:pointer;font-weight:700;color:var(--accent);}
+  .small{font-size:13px;color:var(--muted);}
+  .kbd{font-family:monospace;background:var(--card2);border:1px solid var(--line);border-bottom-width:2px;border-radius:5px;padding:1px 6px;}
+  ul{margin:8px 0 8px 0;padding-left:22px;}
+  li{margin:4px 0;}
+  .num{font-variant-numeric:tabular-nums;}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <span class="tag">공부용 가이드</span><span class="tag">STOM · Kronos 비의존 RL</span><span class="tag">최종 갱신 2026-05</span>
+  <h1>STOM 강화학습, 쉽게 이해하기</h1>
+  <p class="lead">이 문서는 <code>stom_rl/</code> 에 실제 구현된 강화학습(RL)을 비전공자도 이해할 수 있게 풀어 쓴 공부용 자료입니다. 모든 설명은 실제 코드 기준입니다.</p>
+
+  <div class="card">
+    <b>📑 목차</b>
+    <div class="toc">
+      <a href="#what">1. 강화학습이란? (비유)</a><br>
+      <a href="#mdp">2. 핵심 4요소 (MDP)</a><br>
+      <a href="#features">3. 어떤 변수를 쓰나? (중요)</a><br>
+      <a href="#reward">4. 보상은 어떻게 주나?</a><br>
+      <a href="#algo">5. DQN vs PPO</a><br>
+      <a href="#pipeline">6. 전체 프로세스</a><br>
+      <a href="#limits">7. 솔직한 한계</a><br>
+      <a href="#quiz">8. 자가 점검 퀴즈</a>
+    </div>
+  </div>
+
+  <h2 id="what">1. 강화학습이란? — 한 줄과 비유</h2>
+  <p><b>한 줄:</b> 1초봉 차트 위에서 에이전트가 <span class="pill buy">사라</span> <span class="pill sell">팔라</span> <span class="pill hold">기다려라</span> 를 반복하며, <b>비용을 뺀 수익(=점수)</b>을 최대화하는 매매 습관을 스스로 학습합니다.</p>
+  <div class="analogy">
+    <b>🎮 비유 — 게임 반복 플레이</b><br>
+    강화학습은 같은 게임을 수천 번 다시 하며 고득점 비법을 익히는 것과 같습니다.
+    <ul>
+      <li><b>게임판</b> = 한 종목의 하루치 1초봉 차트</li>
+      <li><b>플레이어</b> = 에이전트(신경망)</li>
+      <li><b>조작 버튼</b> = 사라 / 팔라 / 기다려라 (3개)</li>
+      <li><b>점수</b> = 거래비용(25bp)을 뺀 수익률</li>
+    </ul>
+    처음엔 버튼을 거의 무작위로 누르지만, 점수가 높았던 행동 패턴을 점점 강화합니다.
+  </div>
+
+  <h2 id="mdp">2. 핵심 4요소 — MDP(마르코프 결정 과정)</h2>
+  <p>모든 강화학습은 <b>상태 → 행동 → 보상 → 다음 상태</b>의 반복입니다. 이 프로젝트의 실제 매핑(<code>stom_rl/trading_env.py</code>):</p>
+  <div class="mdp">
+    <div class="box"><div class="k">상태 State</div><div class="v">최근 300초 ×<br>9개 변수</div></div>
+    <div class="box"><div class="k">행동 Action</div><div class="v">hold / buy / sell<br>(3택)</div></div>
+    <div class="box"><div class="k">보상 Reward</div><div class="v">비용 차감<br>수익률</div></div>
+    <div class="box"><div class="k">전이 Transition</div><div class="v">1초씩<br>다음 봉으로</div></div>
+  </div>
+  <table>
+    <tr><th>요소</th><th>실제 코드</th></tr>
+    <tr><td><b>상태</b></td><td>최근 <code>lookback_window=300</code>초 × 9개 feature 행렬. <b>미래 정보는 절대 관측에 안 들어감</b>(lookahead 차단).</td></tr>
+    <tr><td><b>행동</b></td><td><code>Discrete(3)</code>: <code>0=hold</code>, <code>1=buy</code>, <code>2=sell</code>. 이미 보유 중 매수·미보유 중 매도는 <code>invalid_action</code> → 패널티 <code>-0.001</code>.</td></tr>
+    <tr><td><b>보상</b></td><td>보유 중이면 300초 뒤 수익률, 청산 시 실현 수익률, 거래마다 25bp 비용 차감 (아래 4장).</td></tr>
+    <tr><td><b>전이</b></td><td><code>current_idx += 1</code> (1초 전진). 마지막 horizon 확보 지점에서 episode 종료.</td></tr>
+  </table>
+  <p class="small"><b>에피소드(1판)</b> = 한 종목의 하루치(세션) 1초봉 시퀀스. 데이터는 train 13,256 / val 2,764 / test 2,730판으로 분리되어 있습니다.</p>
+
+  <h2 id="features">3. 어떤 변수를 쓰나? — <span style="color:var(--warn)">중요</span></h2>
+  <p>자주 받는 질문: <b>"DB의 모든 변수를 다 쓰나요?"</b> → <b style="color:var(--bad)">아니요.</b> 9개만 씁니다.</p>
+  <div class="grid2">
+    <div class="card">
+      <h3>✅ 실제 쓰는 9개</h3>
+      <b>시장 6개</b> (원본 봉 데이터)
+      <ul>
+        <li><code>open, high, low, close</code></li>
+        <li><code>volume</code> (거래량), <code>amount</code> (거래대금)</li>
+      </ul>
+      <b>파생 3개</b> (포지션 상태)
+      <ul>
+        <li><code>position</code> — 보유 여부(0/1)</li>
+        <li><code>unrealized_return</code> — 평가손익</li>
+        <li><code>time_in_position</code> — 보유 경과</li>
+      </ul>
+    </div>
+    <div class="card">
+      <h3>❌ 안 쓰는 것</h3>
+      <ul>
+        <li>원본 CSV에 있지만 버리는 컬럼: <code>money</code>, <code>factor</code></li>
+        <li>STOM 틱DB의 <b>호가/체결강도/주문북</b> — episode CSV에 애초에 없음</li>
+        <li><b>Kronos 모델의 예측값/피처</b> — 이 RL은 "Kronos 비의존"이라 전혀 안 씀</li>
+        <li>기술적 지표(이동평균·RSI 등) — 미적용</li>
+      </ul>
+    </div>
+  </div>
+  <table>
+    <caption class="small" style="text-align:left;margin-bottom:6px">원본 qlib CSV 10개 컬럼 중 실제 사용 현황</caption>
+    <tr><th>컬럼</th><th>사용?</th><th>용도</th></tr>
+    <tr><td><code>open/high/low/close</code></td><td class="used">사용</td><td>관측 feature (가격)</td></tr>
+    <tr><td><code>volume</code></td><td class="used">사용</td><td>관측 feature (거래량)</td></tr>
+    <tr><td><code>amount</code></td><td class="used">사용</td><td>관측 feature (거래대금)</td></tr>
+    <tr><td><code>date</code></td><td class="num">간접</td><td>시간 인덱싱·기간 분할용 (feature 아님)</td></tr>
+    <tr><td><code>symbol</code></td><td class="num">간접</td><td>종목 식별용 (feature 아님)</td></tr>
+    <tr><td><code>money</code></td><td class="unused">미사용</td><td>—</td></tr>
+    <tr><td><code>factor</code></td><td class="unused">미사용</td><td>—</td></tr>
+  </table>
+  <div class="honest">
+    <b>왜 이렇게 적게 쓰나?</b> env 주석에 명시돼 있듯 <b>"첫 RL 단계에서는 의도적으로 의존성을 가볍게"</b> 설계했기 때문입니다. OHLCV만 쓰는 최소 에이전트입니다. 이는 뒤(<a href="#limits">7장</a>)의 성능 한계와 직접 연결됩니다 — 정보가 적으면 학습할 수 있는 패턴도 제한됩니다.
+  </div>
+
+  <h2 id="reward">4. 보상은 어떻게 주나? — <code>reward_mode="horizon"</code></h2>
+  <p>핵심 아이디어: <b>"지금 들고 있으면 5분(300초) 뒤에 이득일까?"</b> 를 보상으로 줍니다.</p>
+  <table>
+    <tr><th>상황</th><th>보상</th></tr>
+    <tr><td>보유 중 (계속 hold)</td><td>300초 뒤 forward 수익률 <code>(close[t+300]-close[t])/close[t]</code></td></tr>
+    <tr><td>매도(청산)</td><td>실현 수익률 (산 가격 대비)</td></tr>
+    <tr><td>거래 발생 시</td><td><b>비용 차감</b> <code>-25bp</code> (= 0.25%)</td></tr>
+    <tr><td>잘못된 행동</td><td>패널티 <code>-0.001</code></td></tr>
+  </table>
+  <div class="analogy">
+    <b>📐 비유 — 우산 장수</b><br>
+    "지금 우산을 들고 있으면 5분 뒤 비가 와서 이득일까?"를 매 순간 점수로 환산하는 셈입니다. 비용(우산 빌리는 값 25bp)은 살 때·팔 때마다 까입니다. 그래서 너무 자주 사고팔면 비용에 갉아먹힙니다.
+  </div>
+  <p class="small">이 설계 때문에 정책은 사실상 <b>단기(5분) 추세 추종</b>을 학습하게 됩니다.</p>
+
+  <h2 id="algo">5. 두 알고리즘 — DQN vs PPO</h2>
+  <p>둘 다 Stable-Baselines3의 표준 구현이며, 신경망은 작은 <code>MLP [64, 32]</code> 입니다.</p>
+  <div class="grid2">
+    <div class="card">
+      <h3>DQN (가치 기반)</h3>
+      <p class="small">"각 상황에서 각 버튼의 <b>미래 가치</b>를 점수로 매기고, 가장 높은 버튼을 누른다."</p>
+      <ul>
+        <li>경험 재생 버퍼(과거 경험 재학습)</li>
+        <li>타깃 네트워크 (안정화)</li>
+        <li>ε-greedy 탐험: 처음 40% 무작위 → 5%로 감소</li>
+      </ul>
+    </div>
+    <div class="card">
+      <h3>PPO (정책 기반)</h3>
+      <p class="small">"버튼을 누를 <b>확률 자체</b>를 직접 다듬되, 한 번에 너무 크게 안 바뀌게 안전하게."</p>
+      <ul>
+        <li>actor-critic 구조</li>
+        <li>clipped objective (안정적 업데이트)</li>
+        <li><code>n_steps</code> 수집 → <code>n_epochs</code> 갱신 (on-policy)</li>
+      </ul>
+    </div>
+  </div>
+  <div class="analogy">
+    <b>🍴 비유</b> — <b>DQN</b>은 식당 메뉴마다 "예상 만족도 점수"를 매겨 1등을 고르는 사람, <b>PPO</b>는 "이 메뉴를 시킬 확률"을 조금씩 조정하는 사람입니다.
+  </div>
+
+  <h2 id="pipeline">6. 전체 프로세스 한눈에</h2>
+  <div class="flow">
+    <span class="step">① episode_manifest<br><span class="small">1초봉→판 분할</span></span><span class="arrow">→</span>
+    <span class="step">② trading_env<br><span class="small">MDP 정의</span></span><span class="arrow">→</span>
+    <span class="step">③ sb3_adapter<br><span class="small">Gymnasium 래퍼</span></span><span class="arrow">→</span>
+    <span class="step">④ sb3_smoke<br><span class="small">학습·저장·평가</span></span><span class="arrow">→</span>
+    <span class="step">⑤ leaderboard<br><span class="small">기준선 비교</span></span><span class="arrow">→</span>
+    <span class="step">⑥ eval-only / walk-forward<br><span class="small">재검증</span></span>
+  </div>
+  <ul>
+    <li><b>학습:</b> <code>model.learn(total_timesteps)</code> 로 환경과 상호작용하며 신경망을 갱신 → <code>{algo}_model.zip</code> 저장.</li>
+    <li><b>평가:</b> 학습한 모델을 test 판들에서 <b>탐험 없이(deterministic)</b> 실행하며 거래·자산곡선을 기록.</li>
+    <li><b>비교 기준선:</b> 아무것도 안 함(no-trade), 사서 들고 있기(buy-and-hold)와 <b>같은 비용 기준</b>으로 비교.</li>
+    <li><b>실시간 화면:</b> 학습/평가 중 step·action·reward·equity를 <code>rl_live_events.jsonl</code> 로 남겨 대시보드에서 재생.</li>
+  </ul>
+
+  <h2 id="limits">7. 솔직한 한계 (꼭 알아야 할 것)</h2>
+  <div class="honest">
+    <b>⚠️ 이 RL은 아직 "실전 모델"이 아니라 "실전 후보"입니다.</b> 검증 과정에서 다음이 드러났습니다:
+    <ul>
+      <li><b>학습량 확대가 무효</b> — 50k→100k step으로 늘려도 out-of-sample 성능이 오히려 약간 하락(공정 100판 비교: dqn 50k +1.34% vs 100k +1.18%).</li>
+      <li><b>기간 민감(regime sensitive)</b> — 6개 기간으로 나눠 보니 좋은 구간과 나쁜 구간이 섞였고, <b>가장 최근 구간(12/22~12/30)은 손실</b>이었습니다. 종합 +1.34%는 좋은 초반이 약한 최근을 가린 결과.</li>
+      <li><b>정보가 9개뿐</b> — 호가·체결강도·Kronos 예측 등 풍부한 변수를 안 써서 학습 가능한 패턴이 제한적.</li>
+      <li><b>낙폭(MDD)이 큼</b> — 특정 기간 -38%까지. 실전 전 <b>위험관리 gate</b>가 필수.</li>
+    </ul>
+    결론: 흥미로운 후보지만, 더 많은 변수·기간 검증·위험 차단 장치 없이 실거래에 쓰면 안 됩니다.
+  </div>
+
+  <h2 id="quiz">8. 자가 점검 퀴즈</h2>
+  <details class="q"><summary>Q1. 에이전트가 누를 수 있는 버튼은 몇 개이고 무엇인가?</summary>
+    <p>3개 — <span class="pill hold">hold</span> <span class="pill buy">buy</span> <span class="pill sell">sell</span>. 보유 중 buy나 미보유 중 sell은 무효 행동으로 패널티.</p></details>
+  <details class="q"><summary>Q2. 보상의 핵심 아이디어는?</summary>
+    <p>"지금 보유 중이면 300초 뒤 수익률"을 보상으로 주고, 거래마다 25bp 비용을 뺀다. → 단기 추세 추종을 학습.</p></details>
+  <details class="q"><summary>Q3. DB의 모든 변수를 쓰는가?</summary>
+    <p>아니다. 9개(시장 6 + 파생 3)만 쓴다. <code>money·factor</code>는 버리고, 호가·Kronos 예측 등은 아예 입력에 없다.</p></details>
+  <details class="q"><summary>Q4. DQN과 PPO의 차이를 한 문장으로?</summary>
+    <p>DQN은 행동의 "가치"를 점수로 매겨 최고를 고르고(가치 기반), PPO는 행동 "확률"을 직접 안전하게 다듬는다(정책 기반).</p></details>
+  <details class="q"><summary>Q5. 왜 100k 학습이 50k를 못 이겼을까?</summary>
+    <p>정보(9 feature)·모델 크기·짧은 horizon에서 이미 평탄화됐고, 단일 split 반복으로 기간 의존/경미한 과적합이 생겼기 때문. 학습량만 늘리는 건 해법이 아니다.</p></details>
+
+  <p class="small" style="margin-top:40px;border-top:1px solid var(--line);padding-top:14px">
+    소스: <code>stom_rl/trading_env.py</code>, <code>stom_rl/sb3_smoke.py</code>, <code>stom_rl/sb3_adapter.py</code>, <code>stom_rl/walk_forward.py</code> · 대시보드: <span class="kbd">http://127.0.0.1:5070/rl</span>
+  </p>
+
+</div>
+</body>
+</html>

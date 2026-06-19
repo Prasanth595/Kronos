@@ -1,0 +1,12 @@
+{
+  "description": "Canonical STOM buy filter from docs/reference/stom_ai_agent/examples.md section 1 (strategy.txt regular form). Korean variables mapped to Kronos canonical ASCII features: 당일거래대금->amount, 체결강도->trade_strength. The original also gates 등락율/고저평균대비등락율/체결강도평균(30); those have no canonical-feature column, so only the whitelisted-mappable demand filters are kept (more permissive, never references unmapped names).",
+  "source": "docs/reference/stom_ai_agent/examples.md#1, strategy.txt",
+  "rules": [
+    {
+      "condition_id": "buy_widev1",
+      "side": "buy",
+      "expression": "amount >= 100 and trade_strength >= 100",
+      "rank_expression": "trade_strength"
+    }
+  ]
+}

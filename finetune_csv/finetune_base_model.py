@@ -4,12 +4,12 @@ import json
 import time
 import pickle
 import random
-import pandas as pd
-import numpy as np
 import torch
 import torch.nn as nn
 from torch.utils.data import Dataset, DataLoader
 from torch.utils.data.distributed import DistributedSampler
+import pandas as pd
+import numpy as np
 from time import gmtime, strftime
 import logging
 from logging.handlers import RotatingFileHandler
@@ -17,9 +17,12 @@ import datetime
 import torch.distributed as dist
 from torch.nn.parallel import DistributedDataParallel as DDP
 
-sys.path.append('../')
-from model import Kronos, KronosTokenizer, KronosPredictor
+PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), os.pardir))
+if PROJECT_ROOT not in sys.path:
+    sys.path.insert(0, PROJECT_ROOT)
+
 from config_loader import CustomFinetuneConfig
+from stom_tick_dataset import GroupedKlineDataset
 
 
 class CustomKlineDataset(Dataset):
@@ -132,6 +135,40 @@ class CustomKlineDataset(Dataset):
         return x_tensor, x_stamp_tensor
 
 
+def build_dataset_from_config(config, data_type='train', seed=None):
+    dataset_type = getattr(config, 'dataset_type', 'csv')
+    dataset_seed = config.seed if seed is None else seed
+
+    if dataset_type in {'grouped_csv', 'stom_tick', 'multi_symbol_csv'}:
+        return GroupedKlineDataset(
+            data_path=config.data_path,
+            data_type=data_type,
+            lookback_window=config.lookback_window,
+            predict_window=config.predict_window,
+            clip=config.clip,
+            seed=dataset_seed,
+            train_ratio=config.train_ratio,
+            val_ratio=config.val_ratio,
+            test_ratio=config.test_ratio,
+            group_columns=getattr(config, 'group_columns', ['symbol', 'session']),
+            sample_stride=getattr(config, 'sample_stride', 1),
+            max_samples=getattr(config, 'max_samples', None),
+            normalize_using=getattr(config, 'normalize_using', 'lookback'),
+        )
+
+    return CustomKlineDataset(
+        data_path=config.data_path,
+        data_type=data_type,
+        lookback_window=config.lookback_window,
+        predict_window=config.predict_window,
+        clip=config.clip,
+        seed=dataset_seed,
+        train_ratio=config.train_ratio,
+        val_ratio=config.val_ratio,
+        test_ratio=config.test_ratio
+    )
+
+
 
 
 def setup_logging(exp_name: str, log_dir: str, rank: int = 0) -> logging.Logger:
@@ -182,29 +219,9 @@ def create_dataloaders(config):
     if not dist.is_available() or not dist.is_initialized() or dist.get_rank() == 0:
         print("Creating data loaders...")
     
-    train_dataset = CustomKlineDataset(
-        data_path=config.data_path,
-        data_type='train',
-        lookback_window=config.lookback_window,
-        predict_window=config.predict_window,
-        clip=config.clip,
-        seed=config.seed,
-        train_ratio=config.train_ratio,
-        val_ratio=config.val_ratio,
-        test_ratio=config.test_ratio
-    )
+    train_dataset = build_dataset_from_config(config, data_type='train', seed=config.seed)
     
-    val_dataset = CustomKlineDataset(
-        data_path=config.data_path,
-        data_type='val',
-        lookback_window=config.lookback_window,
-        predict_window=config.predict_window,
-        clip=config.clip,
-        seed=config.seed + 1,
-        train_ratio=config.train_ratio,
-        val_ratio=config.val_ratio,
-        test_ratio=config.test_ratio
-    )
+    val_dataset = build_dataset_from_config(config, data_type='val', seed=config.seed + 1)
     
     use_ddp = dist.is_available() and dist.is_initialized()
     train_sampler = DistributedSampler(train_dataset, num_replicas=dist.get_world_size(), rank=dist.get_rank(), shuffle=True) if use_ddp else None
@@ -388,8 +405,14 @@ def main():
     
     logger.info("Loading pretrained model or random initialization...")
     print("Loading pretrained model or random initialization...")
+    from model import Kronos, KronosTokenizer
+
     if getattr(config, 'pre_trained_tokenizer', True):
-        tokenizer = KronosTokenizer.from_pretrained(config.finetuned_tokenizer_path)
+        tokenizer_load_path = config.finetuned_tokenizer_path
+        if not getattr(config, 'train_tokenizer', True) and getattr(config, 'pretrained_tokenizer_path', None):
+            tokenizer_load_path = config.pretrained_tokenizer_path
+        print(f"Loading tokenizer: {tokenizer_load_path}")
+        tokenizer = KronosTokenizer.from_pretrained(tokenizer_load_path)
     else:
         import json, os
         print("pre_trained_tokenizer=False, randomly initializing Tokenizer architecture for training")
@@ -452,7 +475,7 @@ def main():
     logger.info(f"Learning rate: {config.predictor_learning_rate}")
     logger.info(f"Training epochs: {config.basemodel_epochs}")
     logger.info(f"Device: {device}")
-    logger.info(f"Tokenizer path: {config.finetuned_tokenizer_path}")
+    logger.info(f"Tokenizer path: {tokenizer_load_path if getattr(config, 'pre_trained_tokenizer', True) else config.pretrained_tokenizer_path}")
     logger.info(f"Pretrained model path: {config.pretrained_predictor_path}")
     
     logger.info("Starting fine-tuning training...")

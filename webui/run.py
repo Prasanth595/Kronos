@@ -9,6 +9,11 @@ import subprocess
 import webbrowser
 import time
 
+if hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+if hasattr(sys.stderr, "reconfigure"):
+    sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+
 def check_dependencies():
     """Check if dependencies are installed"""
     try:
@@ -70,16 +75,33 @@ def main():
     # Start server
     try:
         from app import app
+        host = os.environ.get("KRONOS_WEBUI_HOST", "127.0.0.1")
+        port = int(os.environ.get("KRONOS_WEBUI_PORT", os.environ.get("PORT", "7070")))
+        open_browser = os.environ.get("KRONOS_WEBUI_OPEN_BROWSER", "1").lower() not in {"0", "false", "no", "off"}
+        # Debug stays available, but the file-watch reloader is OFF by default:
+        # webui/ holds runtime artifacts (rl_runs, stom_predictions, logs) that
+        # change constantly, which would otherwise restart the server in a loop
+        # and re-open the browser tab on every restart. Opt back in with
+        # KRONOS_WEBUI_RELOAD=1 when editing server code.
+        debug_mode = os.environ.get("KRONOS_WEBUI_DEBUG", "1").lower() not in {"0", "false", "no", "off"}
+        use_reloader = os.environ.get("KRONOS_WEBUI_RELOAD", "0").lower() in {"1", "true", "yes", "on"}
+        # In the reloader child process Werkzeug sets WERKZEUG_RUN_MAIN; never
+        # re-open the browser there, otherwise each restart spawns a new tab.
+        is_reloader_child = bool(os.environ.get("WERKZEUG_RUN_MAIN"))
+        access_host = "localhost" if host in {"0.0.0.0", "::"} else host
+        access_url = f"http://{access_host}:{port}"
+
         print("✅ Web server started successfully!")
-        print(f"🌐 Access URL: http://localhost:7070")
+        print(f"🌐 Access URL: {access_url}")
         print("💡 Tip: Press Ctrl+C to stop server")
-        
-        # Auto-open browser
-        time.sleep(2)
-        webbrowser.open('http://localhost:7070')
-        
+
+        # Auto-open browser once, only in the main process and only if enabled.
+        if open_browser and not is_reloader_child:
+            time.sleep(2)
+            webbrowser.open(access_url)
+
         # Start Flask application
-        app.run(debug=True, host='0.0.0.0', port=7070)
+        app.run(debug=debug_mode, host=host, port=port, use_reloader=use_reloader)
         
     except Exception as e:
         print(f"❌ Startup failed: {e}")

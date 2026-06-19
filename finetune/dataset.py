@@ -46,6 +46,7 @@ class QlibDataset(Dataset):
         self.symbols = list(self.data.keys())
         self.feature_list = self.config.feature_list
         self.time_feature_list = self.config.time_feature_list
+        self.sample_mode = self.config.dataset_sample_mode
 
         # Pre-compute all possible (symbol, start_index) pairs.
         self.indices = []
@@ -69,10 +70,17 @@ class QlibDataset(Dataset):
                 for i in range(num_samples):
                     self.indices.append((symbol, i))
 
-        # The effective dataset size is the minimum of the configured iterations
-        # and the total number of available samples.
+        if self.sample_mode not in {"sample_random", "full_sequential"}:
+            raise ValueError("KRONOS_DATASET_SAMPLE_MODE must be 'sample_random' or 'full_sequential'")
+
+        # sample_random keeps the original Kronos demo behavior. full_sequential
+        # makes idx authoritative, which is required before claiming an exact
+        # full-window epoch.
         self.n_samples = min(self.n_samples, len(self.indices))
-        print(f"[{data_type.upper()}] Found {len(self.indices)} possible samples. Using {self.n_samples} per epoch.")
+        print(
+            f"[{data_type.upper()}] Found {len(self.indices)} possible samples. "
+            f"Using {self.n_samples} per epoch. sample_mode={self.sample_mode}"
+        )
 
     def set_epoch_seed(self, epoch: int):
         """
@@ -91,9 +99,12 @@ class QlibDataset(Dataset):
 
     def __getitem__(self, idx: int) -> tuple[torch.Tensor, torch.Tensor]:
         
-        # Select a random sample from the entire pool of indices.
-        random_idx = self.py_rng.randint(0, len(self.indices) - 1)
-        symbol, start_idx = self.indices[random_idx]
+        if self.sample_mode == "full_sequential":
+            symbol, start_idx = self.indices[int(idx)]
+        else:
+            # Select a random sample from the entire pool of indices.
+            random_idx = self.py_rng.randint(0, len(self.indices) - 1)
+            symbol, start_idx = self.indices[random_idx]
 
         # Extract the sliding window from the dataframe.
         df = self.data[symbol]

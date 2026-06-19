@@ -1,0 +1,1417 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="kronos-dashboard-shell" content="hero,live-training,stom,forecast,artifacts,history,system-health">
+  <title>Kronos 대시보드</title>
+  <script src="https://cdn.jsdelivr.net/npm/echarts@5.5.0/dist/echarts.min.js"></script>
+  <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.14.1/dist/cdn.min.js"></script>
+  <style>
+    :root {
+      --chart-color-primary: #38bdf8;
+      --chart-color-secondary: #22c55e;
+      --chart-color-warn: #f59e0b;
+      --chart-color-danger: #ef4444;
+      --chart-bg: #111827;
+      --chart-grid: #243244;
+      --chart-font-family: 'Segoe UI','Malgun Gothic',sans-serif;
+    }
+
+    *, *::before, *::after { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      font-family: var(--chart-font-family);
+      background: #0f172a;
+      color: #e2e8f0;
+      display: flex;
+      flex-direction: column;
+      min-height: 100vh;
+    }
+
+    /* ── 헤더 ── */
+    .v2-header {
+      background: linear-gradient(135deg, #111827, #1d4ed8);
+      border-bottom: 1px solid rgba(255,255,255,.12);
+      padding: 14px 24px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      flex-shrink: 0;
+    }
+    .v2-header h1 {
+      margin: 0;
+      font-size: 20px;
+      color: #bfdbfe;
+      letter-spacing: .02em;
+    }
+    .v2-header .v1-links {
+      font-size: 12px;
+      color: #94a3b8;
+    }
+    .v2-header .v1-links a {
+      color: #93c5fd;
+      margin-left: 10px;
+      text-decoration: none;
+    }
+    .v2-header .v1-links a:hover { text-decoration: underline; }
+
+    /* ── 레이아웃 ── */
+    .v2-layout {
+      display: flex;
+      flex: 1;
+      overflow: hidden;
+    }
+
+    /* ── 좌측 NAV ── */
+    .v2-nav {
+      width: 200px;
+      flex-shrink: 0;
+      background: #0b1120;
+      border-right: 1px solid #243244;
+      padding: 20px 0;
+      display: flex;
+      flex-direction: column;
+      overflow-y: auto;
+    }
+    .v2-nav .nav-section-title {
+      font-size: 10px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: .08em;
+      color: #475569;
+      padding: 0 18px 8px 18px;
+      margin-top: 8px;
+    }
+    .v2-nav a {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 10px 18px;
+      text-decoration: none;
+      color: #94a3b8;
+      font-size: 13px;
+      font-weight: 600;
+      border-left: 3px solid transparent;
+      transition: background .15s, color .15s, border-color .15s;
+    }
+    .v2-nav a:hover {
+      background: rgba(56,189,248,.08);
+      color: #e2e8f0;
+    }
+    .v2-nav a.active,
+    .v2-nav a[aria-current="page"] {
+      background: rgba(56,189,248,.12);
+      color: #38bdf8;
+      border-left-color: #38bdf8;
+    }
+    .v2-nav .nav-icon { font-size: 15px; width: 18px; text-align: center; }
+
+    /* ── 메인 콘텐츠 ── */
+    .v2-main {
+      flex: 1;
+      overflow-y: auto;
+      padding: 20px 24px;
+    }
+
+    /* ── 카드 ── */
+    .card {
+      background: var(--chart-bg);
+      border: 1px solid var(--chart-grid);
+      border-radius: 14px;
+      padding: 18px;
+      margin-bottom: 18px;
+    }
+    .card h2 {
+      font-size: 15px;
+      margin: 0 0 12px 0;
+      color: #bfdbfe;
+    }
+    .card h3 {
+      font-size: 13px;
+      margin: 0 0 8px 0;
+      color: #93c5fd;
+    }
+
+    /* ── Hero Strip (W7 + W1 + W2) ── */
+    #hero-strip {
+      background: linear-gradient(135deg, #0f172a 60%, #0c2045);
+      border: 1px solid #243244;
+      border-radius: 14px;
+      padding: 18px 22px;
+      margin-bottom: 18px;
+      display: flex;
+      gap: 18px;
+      align-items: stretch;
+      flex-wrap: wrap;
+    }
+
+    /* W7: 메인 상태 배지 */
+    .w7-status-badge {
+      flex: 0 0 auto;
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      min-width: 200px;
+    }
+    .w7-status-badge .status-label {
+      font-size: 10px;
+      text-transform: uppercase;
+      letter-spacing: .08em;
+      color: #475569;
+      margin-bottom: 6px;
+    }
+    .readiness-badge {
+      display: inline-block;
+      border-radius: 999px;
+      padding: 5px 14px;
+      font-size: 13px;
+      font-weight: 800;
+      background: #422006;
+      color: #fde68a;
+      margin-bottom: 8px;
+    }
+    .readiness-badge.ready   { background: #14532d; color: #dcfce7; }
+    .readiness-badge.training { background: #0c4a6e; color: #bae6fd; }
+    .readiness-badge.waiting  { background: #422006; color: #fde68a; }
+
+    .w7-message {
+      font-size: 12px;
+      color: #94a3b8;
+      line-height: 1.5;
+      max-width: 320px;
+    }
+
+    /* W1: Stage Stepper */
+    .w1-stepper {
+      flex: 1 1 220px;
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+    }
+    .w1-stepper .stepper-title {
+      font-size: 11px;
+      color: #475569;
+      text-transform: uppercase;
+      letter-spacing: .06em;
+      margin-bottom: 10px;
+    }
+    .stepper-steps {
+      display: flex;
+      gap: 0;
+    }
+    .stepper-step {
+      flex: 1;
+      text-align: center;
+      position: relative;
+    }
+    .stepper-step::after {
+      content: '';
+      position: absolute;
+      top: 12px;
+      right: -50%;
+      width: 100%;
+      height: 2px;
+      background: #243244;
+      z-index: 0;
+    }
+    .stepper-step:last-child::after { display: none; }
+    .step-dot {
+      width: 24px;
+      height: 24px;
+      border-radius: 50%;
+      background: #1e293b;
+      border: 2px solid #334155;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 11px;
+      font-weight: 700;
+      color: #64748b;
+      position: relative;
+      z-index: 1;
+      margin-bottom: 4px;
+    }
+    .step-dot.active  { border-color: #38bdf8; background: #0c4a6e; color: #bae6fd; }
+    .step-dot.done    { border-color: #22c55e; background: #14532d; color: #dcfce7; }
+    .step-name {
+      display: block;
+      font-size: 11px;
+      color: #64748b;
+    }
+    .step-name.active { color: #38bdf8; }
+    .step-name.done   { color: #22c55e; }
+    .step-pct {
+      display: block;
+      font-size: 10px;
+      color: #475569;
+    }
+
+    /* W2: Readiness 신호등 + ETA (가로 정렬, 카드형) */
+    .w2-readiness {
+      flex: 0 0 auto;
+      min-width: 220px;
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      align-items: stretch;
+      gap: 10px;
+      padding: 10px 14px;
+      background: rgba(11,17,32,.55);
+      border: 1px solid #243244;
+      border-radius: 12px;
+    }
+    .traffic-light {
+      display: flex;
+      flex-direction: row;
+      gap: 8px;
+      align-items: center;
+      justify-content: center;
+    }
+    .tl-dot {
+      width: 16px;
+      height: 16px;
+      border-radius: 50%;
+      background: #1f2937;
+      border: 1px solid #334155;
+      transition: background .3s, box-shadow .3s;
+    }
+    .tl-dot.lit-red    { background: #ef4444; box-shadow: 0 0 8px #ef4444; }
+    .tl-dot.lit-yellow { background: #f59e0b; box-shadow: 0 0 8px #f59e0b; }
+    .tl-dot.lit-green  { background: #22c55e; box-shadow: 0 0 8px #22c55e; }
+    .tl-label {
+      font-size: 11px;
+      color: #94a3b8;
+      margin-left: 8px;
+      font-weight: 600;
+    }
+    .w2-eta {
+      text-align: center;
+      border-top: 1px dashed #243244;
+      padding-top: 8px;
+    }
+    .w2-eta .eta-label {
+      font-size: 11px;
+      color: #64748b;
+      text-transform: uppercase;
+      letter-spacing: .06em;
+    }
+    .w2-eta .eta-value {
+      font-size: 14px;
+      color: #e2e8f0;
+      font-weight: 700;
+      margin-top: 4px;
+    }
+
+    /* ── 메인 그리드 (W3 + W4) ── */
+    .main-grid {
+      display: grid;
+      grid-template-columns: 60% 40%;
+      gap: 18px;
+      margin-bottom: 18px;
+    }
+    @media (max-width: 900px) {
+      .main-grid { grid-template-columns: 1fr; }
+      #hero-strip { flex-direction: column; }
+    }
+
+    /* W3: Loss Curve */
+    #loss-curve-chart {
+      width: 100%;
+      height: 260px;
+    }
+
+    /* W4: ETA 타임라인 */
+    .w4-timeline {
+      display: flex;
+      flex-direction: column;
+      gap: 14px;
+      justify-content: center;
+      height: 100%;
+    }
+    .timeline-row {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      font-size: 12px;
+    }
+    .timeline-icon {
+      width: 28px;
+      height: 28px;
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 13px;
+      flex-shrink: 0;
+    }
+    .timeline-icon.start   { background: #1e3a5f; border: 2px solid #38bdf8; }
+    .timeline-icon.now     { background: #1e40af; border: 2px solid #60a5fa; }
+    .timeline-icon.end     { background: #14532d; border: 2px solid #22c55e; }
+    .timeline-connector {
+      width: 2px;
+      height: 20px;
+      background: #243244;
+      margin-left: 13px;
+    }
+    .timeline-label { color: #64748b; font-size: 11px; }
+    .timeline-value { color: #e2e8f0; font-weight: 700; font-size: 12px; margin-top: 1px; }
+    .timeline-bar-wrap {
+      background: #1f2937;
+      border-radius: 999px;
+      height: 6px;
+      overflow: hidden;
+      margin-top: 10px;
+    }
+    .timeline-bar-fill {
+      height: 100%;
+      background: linear-gradient(90deg, #22c55e, #38bdf8);
+      border-radius: 999px;
+      transition: width .5s ease;
+    }
+
+    /* W5: GPU 스파크라인 */
+    .w5-gpu-grid {
+      display: flex;
+      gap: 12px;
+      flex-wrap: wrap;
+    }
+    .w5-spark-card {
+      flex: 1 1 160px;
+      background: #0b1120;
+      border: 1px solid #243244;
+      border-radius: 10px;
+      padding: 10px 12px;
+    }
+    .w5-spark-label {
+      font-size: 11px;
+      color: #64748b;
+      margin-bottom: 4px;
+      text-transform: uppercase;
+      letter-spacing: .05em;
+    }
+    .w5-spark-value {
+      font-size: 16px;
+      font-weight: 700;
+      color: #e2e8f0;
+      margin-bottom: 6px;
+    }
+    .w5-mini-chart {
+      width: 100%;
+      height: 50px;
+    }
+
+    /* ── 탭 패널 ── */
+    .tab-panel { display: none; }
+    .tab-panel.active { display: block; }
+
+    /* ── 잠금 위젯 ── */
+    .locked-widget {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      padding: 40px 20px;
+      color: #475569;
+      text-align: center;
+      gap: 10px;
+    }
+    .locked-widget .lock-icon { font-size: 32px; }
+    .locked-widget .lock-title { font-size: 14px; font-weight: 700; color: #64748b; }
+    .locked-widget .lock-copy { font-size: 12px; color: #475569; }
+
+    /* ── 푸터 ── */
+    .v2-footer {
+      background: #0b1120;
+      border-top: 1px solid #243244;
+      padding: 10px 24px;
+      font-size: 12px;
+      color: #475569;
+      text-align: center;
+      flex-shrink: 0;
+    }
+    .v2-footer a { color: #64748b; margin: 0 8px; text-decoration: none; }
+    .v2-footer a:hover { color: #93c5fd; text-decoration: underline; }
+
+    /* ── 유틸 ── */
+    .muted { color: #64748b; font-size: 12px; }
+    .badge {
+      display: inline-block;
+      border-radius: 999px;
+      padding: 2px 9px;
+      font-size: 11px;
+      font-weight: 700;
+    }
+    .badge-running  { background: #1e40af; color: #dbeafe; }
+    .badge-ok       { background: #14532d; color: #dcfce7; }
+    .badge-waiting  { background: #374151; color: #e5e7eb; }
+    .badge-warning  { background: #78350f; color: #fde68a; }
+    .progress-bar { width: 100%; height: 8px; border-radius: 999px; background: #1f2937; overflow: hidden; border: 1px solid #334155; margin-top: 4px; }
+    .progress-fill { height: 100%; background: linear-gradient(90deg, #22c55e, #38bdf8); transition: width .4s ease; }
+    .error-msg { color: #fca5a5; font-size: 12px; padding: 6px 0; }
+
+    /* ── P0: 메트릭 스트립 (현재 손실 / sps / LR / Epoch) ── */
+    .metrics-strip {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 12px;
+      margin-bottom: 18px;
+    }
+    .metric-card {
+      background: #0b1120;
+      border: 1px solid #243244;
+      border-radius: 12px;
+      padding: 12px 14px;
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+    }
+    .metric-card .metric-label {
+      font-size: 10px;
+      color: #64748b;
+      text-transform: uppercase;
+      letter-spacing: .06em;
+      font-weight: 600;
+    }
+    .metric-card .metric-value {
+      font-size: 22px;
+      font-weight: 800;
+      color: #e2e8f0;
+      font-variant-numeric: tabular-nums;
+      line-height: 1.15;
+    }
+    .metric-card .metric-unit {
+      font-size: 11px;
+      color: #94a3b8;
+      margin-left: 4px;
+      font-weight: 600;
+    }
+    .metric-card .metric-sub {
+      font-size: 11px;
+      color: #64748b;
+    }
+    .metric-card.metric-loss .metric-value { color: #38bdf8; }
+    .metric-card.metric-sps .metric-value { color: #22c55e; }
+    .metric-card.metric-lr .metric-value { color: #f59e0b; }
+    .metric-card.metric-epoch .metric-value { color: #c084fc; }
+
+    @media (max-width: 900px) {
+      .metrics-strip { grid-template-columns: repeat(2, 1fr); }
+    }
+    @media (max-width: 420px) {
+      .metrics-strip { grid-template-columns: 1fr; }
+    }
+
+    /* ── 반응형 (A1~A5 모바일 폴리시) ── */
+
+    /* 푸터: 좁아도 줄바꿈 시 간격 유지 (A4) */
+    .v2-footer { flex-wrap: wrap; gap: 4px 8px; }
+    .v2-footer a { white-space: nowrap; }
+
+    /* GPU 카드 라벨 줄바꿈 방지 (A3) */
+    .w5-spark-label { white-space: nowrap; }
+
+    /* 태블릿 폭 (≤ 900px): 사이드바를 상단 가로 NAV로 전환 (A2/B2) */
+    @media (max-width: 900px) {
+      .v2-layout { flex-direction: column; overflow: visible; }
+      .v2-nav {
+        width: 100%;
+        max-height: none;
+        flex-direction: row;
+        overflow-x: auto;
+        overflow-y: hidden;
+        padding: 6px 12px;
+        border-right: none;
+        border-bottom: 1px solid #243244;
+        gap: 2px;
+      }
+      .v2-nav .nav-section-title { display: none; }
+      .v2-nav a {
+        border-left: none;
+        border-bottom: 2px solid transparent;
+        white-space: nowrap;
+        padding: 8px 12px;
+        flex-shrink: 0;
+      }
+      .v2-nav a.active,
+      .v2-nav a[aria-current="page"] {
+        border-left: none;
+        border-bottom-color: #38bdf8;
+        background: rgba(56,189,248,.08);
+      }
+      .v2-nav .nav-meta { display: none; }
+      .v2-main { padding: 16px 18px; }
+    }
+
+    /* 모바일 (≤ 640px): 헤더 세로 스택, 메인 패딩 축소 (A1/A5) */
+    @media (max-width: 640px) {
+      .v2-header {
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 6px;
+        padding: 12px 16px;
+      }
+      .v2-header h1 { font-size: 17px; }
+      .v2-header .v1-links { font-size: 11px; }
+      .v2-header .v1-links a { margin-left: 0; margin-right: 12px; }
+      .v2-main { padding: 14px 14px; }
+      .card { padding: 14px; }
+      #hero-strip { padding: 14px 16px; gap: 14px; }
+      .w5-spark-card { flex: 1 1 calc(50% - 6px); }
+    }
+
+    /* 초소형 (≤ 420px): GPU 카드 1열 (A3) */
+    @media (max-width: 420px) {
+      .w5-spark-card { flex: 1 1 100%; }
+      .v2-footer { font-size: 10px; }
+    }
+  </style>
+</head>
+<body x-data="kronosV2()" x-init="init()">
+
+<!-- ── 헤더 ── -->
+<header class="v2-header">
+  <h1>Kronos 대시보드</h1>
+  <div class="v1-links">
+    기존 화면:
+    <a href="/">예측 UI</a>
+    <a href="/stom">STOM 대시보드</a>
+    <a href="/training">학습 모니터</a>
+  </div>
+</header>
+
+<!-- ── 레이아웃 ── -->
+<div class="v2-layout">
+
+  <!-- ── 좌측 NAV ── -->
+  <nav class="v2-nav" role="navigation" aria-label="메인 메뉴">
+    <div class="nav-section-title">학습</div>
+    <a data-tab="live-training" href="#live-training"
+       :class="{'active': activeTab === 'live-training'}"
+       @click.prevent="setTab('live-training')">
+      <span class="nav-icon">📡</span> 실시간 학습
+    </a>
+    <a data-tab="forecast" href="#forecast"
+       :class="{'active': activeTab === 'forecast'}"
+       @click.prevent="setTab('forecast')">
+      <span class="nav-icon">🔮</span> 예측 워크벤치
+    </a>
+
+    <div class="nav-section-title" style="margin-top:12px;">분석</div>
+    <a data-tab="stom" href="#stom"
+       :class="{'active': activeTab === 'stom'}"
+       @click.prevent="setTab('stom')">
+      <span class="nav-icon">📊</span> STOM 진단
+    </a>
+    <a data-tab="artifacts" href="#artifacts"
+       :class="{'active': activeTab === 'artifacts'}"
+       @click.prevent="setTab('artifacts')">
+      <span class="nav-icon">🗂️</span> 아티팩트 & 모델
+    </a>
+    <a data-tab="history" href="#history"
+       :class="{'active': activeTab === 'history'}"
+       @click.prevent="setTab('history')">
+      <span class="nav-icon">📜</span> 기록 & 런
+    </a>
+
+    <div class="nav-section-title" style="margin-top:12px;">시스템</div>
+    <a data-tab="system-health" href="#system-health"
+       :class="{'active': activeTab === 'system-health'}"
+       @click.prevent="setTab('system-health')">
+      <span class="nav-icon">💻</span> 시스템 상태
+    </a>
+    <a data-tab="settings" href="#settings"
+       :class="{'active': activeTab === 'settings'}"
+       @click.prevent="setTab('settings')">
+      <span class="nav-icon">⚙️</span> 설정
+    </a>
+
+    <div style="margin-top: auto; padding: 16px 18px;">
+      <div style="font-size:11px;color:#334155;">폴링 간격</div>
+      <div style="font-size:13px;color:#38bdf8;font-weight:700;" x-text="refreshSeconds + '초'">5초</div>
+      <div style="font-size:11px;color:#475569;margin-top:4px;" x-text="lastUpdated ? '마지막: ' + lastUpdated : '대기 중...'"></div>
+    </div>
+  </nav>
+
+  <!-- ── 메인 영역 ── -->
+  <main class="v2-main" role="main">
+
+    <!-- ==================== 탭: 실시간 학습 ==================== -->
+    <div class="tab-panel" :class="{'active': activeTab === 'live-training'}">
+
+      <!-- W7 + W1 + W2: Hero Strip -->
+      <section id="hero-strip" data-tab="live-training">
+        <!-- W7: 메인 상태 배지 -->
+        <div class="w7-status-badge">
+          <div class="status-label">학습 준비 상태</div>
+          <span class="readiness-badge"
+                :class="readiness.level"
+                x-text="readiness.label || '확인 중...'">확인 중...</span>
+          <div class="w7-message" x-text="readiness.message || '학습 상태를 불러오는 중입니다.'">
+            학습 상태를 불러오는 중입니다.
+          </div>
+          <div style="margin-top:8px;">
+            <span class="badge"
+                  :class="trainingStatus === 'running' ? 'badge-running' : 'badge-waiting'"
+                  x-text="trainingStatus === 'running' ? '학습 중' : (trainingStatus || '알 수 없음')">
+              알 수 없음
+            </span>
+          </div>
+        </div>
+
+        <!-- W1: Stage Stepper -->
+        <div class="w1-stepper">
+          <div class="stepper-title">학습 단계</div>
+          <div class="stepper-steps">
+            <template x-for="(stage, idx) in stages" :key="idx">
+              <div class="stepper-step">
+                <div class="step-dot"
+                     :class="{
+                       'active': stage.status === 'running',
+                       'done': ['complete','completed','done','finished','success','succeeded'].includes(stage.status)
+                     }"
+                     x-text="idx + 1">1</div>
+                <span class="step-name"
+                      :class="{
+                        'active': stage.status === 'running',
+                        'done': ['complete','completed','done','finished','success','succeeded'].includes(stage.status)
+                      }"
+                      x-text="stage.train_stage || stage.stage || '-'">-</span>
+                <span class="step-pct"
+                      x-text="stage.stage_percent != null ? stage.stage_percent.toFixed(1) + '%' : ''"></span>
+              </div>
+            </template>
+            <template x-if="stages.length === 0">
+              <div class="muted" style="padding:8px 0;">단계 정보 없음</div>
+            </template>
+          </div>
+        </div>
+
+        <!-- W2: Readiness 신호등 + ETA -->
+        <div class="w2-readiness">
+          <div class="traffic-light">
+            <div class="tl-dot" :class="readiness.level === 'waiting' ? 'lit-red' : ''"></div>
+            <div class="tl-dot" :class="readiness.level === 'training' ? 'lit-yellow' : ''"></div>
+            <div class="tl-dot" :class="readiness.level === 'ready' ? 'lit-green' : ''"></div>
+            <span class="tl-label" x-text="readiness.level === 'ready' ? '준비 완료' : readiness.level === 'training' ? '학습 진행' : '대기'">대기</span>
+          </div>
+          <div class="w2-eta">
+            <div class="eta-label">완료 예상 (KST)</div>
+            <div class="eta-value" x-text="etaKst || '-'">-</div>
+          </div>
+        </div>
+      </section>
+
+      <!-- P0: 실시간 핵심 지표 스트립 (현재 손실 / sps / LR / Epoch) -->
+      <div class="metrics-strip" x-show="trainingStatus !== ''">
+        <div class="metric-card metric-loss">
+          <div class="metric-label">현재 손실</div>
+          <div class="metric-value">
+            <span x-text="metricsLatest.loss != null ? metricsLatest.loss.toFixed(4) : '-'">-</span>
+          </div>
+          <div class="metric-sub" x-text="lossPoints.length + ' 포인트 누적'">-</div>
+        </div>
+        <div class="metric-card metric-sps">
+          <div class="metric-label">학습 속도</div>
+          <div class="metric-value">
+            <span x-text="metricsLatest.samplesPerSec != null ? metricsLatest.samplesPerSec.toFixed(1) : '-'">-</span><span class="metric-unit">samples/s</span>
+          </div>
+          <div class="metric-sub" x-text="metricsLatest.samplesPerSec != null ? ('step ~' + (metricsLatest.samplesPerSec * 60 / 4).toFixed(0) + ' /분 (batch=4 가정)') : '-'">-</div>
+        </div>
+        <div class="metric-card metric-lr">
+          <div class="metric-label">학습률 (LR)</div>
+          <div class="metric-value">
+            <span x-text="metricsLatest.learningRate != null ? metricsLatest.learningRate.toExponential(2) : '-'">-</span>
+          </div>
+          <div class="metric-sub" x-text="metricsLatest.learningRate != null ? ('소수 표기: ' + metricsLatest.learningRate.toFixed(6)) : '-'">-</div>
+        </div>
+        <div class="metric-card metric-epoch">
+          <div class="metric-label">현재 Epoch</div>
+          <div class="metric-value">
+            <span x-text="metricsLatest.epoch != null ? metricsLatest.epoch : '-'">-</span><span class="metric-unit" x-text="metricsLatest.epochs != null ? ('/ ' + metricsLatest.epochs) : ''"></span>
+          </div>
+          <div class="metric-sub" x-text="metricsLatest.runName ? ('run: ' + metricsLatest.runName) : '-'">-</div>
+        </div>
+      </div>
+
+      <!-- W3 + W4: Loss Curve + ETA 타임라인 -->
+      <div class="main-grid">
+
+        <!-- W3: Loss Curve -->
+        <div class="card">
+          <h2>학습 손실 곡선 (W3)</h2>
+          <div id="loss-curve-chart"></div>
+          <div class="muted" style="margin-top:6px;" x-text="'표시 포인트: ' + lossPoints.length + ' / 최대 1,000'">표시 포인트: 0 / 최대 1,000</div>
+        </div>
+
+        <!-- W4: ETA 타임라인 -->
+        <div class="card">
+          <h2>ETA 타임라인 (W4)</h2>
+          <div class="w4-timeline">
+            <div>
+              <div class="timeline-row">
+                <div class="timeline-icon start">🚀</div>
+                <div>
+                  <div class="timeline-label">학습 시작</div>
+                  <div class="timeline-value" x-text="startKst || '-'">-</div>
+                </div>
+              </div>
+              <div class="timeline-connector"></div>
+              <div class="timeline-row">
+                <div class="timeline-icon now">⏱</div>
+                <div>
+                  <div class="timeline-label">현재 (KST)</div>
+                  <div class="timeline-value" x-text="nowKst">-</div>
+                </div>
+              </div>
+              <div class="timeline-connector"></div>
+              <div class="timeline-row">
+                <div class="timeline-icon end">🏁</div>
+                <div>
+                  <div class="timeline-label">완료 예상 (KST)</div>
+                  <div class="timeline-value" x-text="etaKst || '-'">-</div>
+                </div>
+              </div>
+            </div>
+            <div>
+              <div style="font-size:11px;color:#475569;margin-bottom:4px;">진행률</div>
+              <div class="timeline-bar-wrap">
+                <div class="timeline-bar-fill" :style="'width:' + overallPercent + '%'"></div>
+              </div>
+              <div style="font-size:12px;color:#94a3b8;margin-top:4px;" x-text="overallPercent.toFixed(1) + '%'">0%</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- W5: GPU 트렌드 스파크라인 -->
+      <div class="card">
+        <h2>GPU 트렌드 (W5)</h2>
+        <div class="w5-gpu-grid">
+          <div class="w5-spark-card">
+            <div class="w5-spark-label">GPU 사용률</div>
+            <div class="w5-spark-value" x-text="gpuLatest.util != null ? gpuLatest.util.toFixed(1) + '%' : '-'">-</div>
+            <div id="spark-util" class="w5-mini-chart"></div>
+          </div>
+          <div class="w5-spark-card">
+            <div class="w5-spark-label">GPU 온도</div>
+            <div class="w5-spark-value" x-text="gpuLatest.temp != null ? gpuLatest.temp.toFixed(1) + '°C' : '-'">-</div>
+            <div id="spark-temp" class="w5-mini-chart"></div>
+          </div>
+          <div class="w5-spark-card">
+            <div class="w5-spark-label">VRAM 사용률</div>
+            <div class="w5-spark-value" x-text="gpuLatest.vram != null ? gpuLatest.vram.toFixed(1) + '%' : '-'">-</div>
+            <div id="spark-vram" class="w5-mini-chart"></div>
+          </div>
+        </div>
+      </div>
+
+    </div><!-- /tab live-training -->
+
+    <!-- ==================== 탭: 예측 워크벤치 (P3 placeholder) ==================== -->
+    <div class="tab-panel" :class="{'active': activeTab === 'forecast'}">
+      <div class="card">
+        <h2>예측 워크벤치</h2>
+        <div class="locked-widget">
+          <div class="lock-icon">🔒</div>
+          <div class="lock-title">예측 워크벤치</div>
+          <div class="lock-copy">
+            <strong>P3</strong> 이후 활성. 예측기(predictor) 학습이 완료되어야 새 모델로 예측할 수 있습니다.<br>
+            과거 모델로 예측을 시도하려면 <a href="/" style="color:#93c5fd;">기존 메인 화면</a>의 lookback / pred_len / temperature / top_p 슬라이더를 사용하세요.
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ==================== 탭: STOM 진단 (P4 placeholder) ==================== -->
+    <div class="tab-panel" :class="{'active': activeTab === 'stom'}">
+      <div class="card">
+        <h2>STOM 진단</h2>
+        <div class="locked-widget">
+          <div class="lock-icon">🔒</div>
+          <div class="lock-title">STOM 진단</div>
+          <div class="lock-copy">
+            <strong>P4</strong> 이후 활성. 통합 진단/추천 화면은 새 대시보드에서 제공할 예정입니다.<br>
+            과거 백테스트·필터 리포트·top-k 추천은 <a href="/stom" style="color:#93c5fd;">기존 STOM 대시보드</a>에서 그대로 확인할 수 있습니다.
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ==================== 탭: 아티팩트 & 모델 (C3 명시 표시) ==================== -->
+    <div class="tab-panel" :class="{'active': activeTab === 'artifacts'}">
+      <div class="card">
+        <h2>아티팩트 & 모델</h2>
+        <template x-if="!artifactInfo.loaded">
+          <div class="muted">아티팩트 상태를 불러오는 중...</div>
+        </template>
+        <template x-if="artifactInfo.loaded">
+          <div>
+            <div style="display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px;margin-bottom:12px;">
+              <div style="background:#0b1120;border:1px solid #243244;border-radius:10px;padding:12px 14px;">
+                <div style="font-size:11px;color:#64748b;text-transform:uppercase;letter-spacing:.05em;">Checkpoint</div>
+                <div style="font-size:22px;font-weight:800;color:#e2e8f0;margin-top:6px;" x-text="artifactInfo.checkpointCount + '개'">0개</div>
+                <div class="muted" style="margin-top:4px;" x-text="artifactInfo.checkpointReady ? '✅ 사용 가능' : '⏳ 생성 대기'">⏳ 생성 대기</div>
+              </div>
+              <div style="background:#0b1120;border:1px solid #243244;border-radius:10px;padding:12px 14px;">
+                <div style="font-size:11px;color:#64748b;text-transform:uppercase;letter-spacing:.05em;">Model Weight</div>
+                <div style="font-size:22px;font-weight:800;color:#e2e8f0;margin-top:6px;" x-text="artifactInfo.modelWeightCount + '개'">0개</div>
+                <div class="muted" style="margin-top:4px;" x-text="artifactInfo.predictorComplete ? '✅ 예측기 완료' : (artifactInfo.predictorStarted ? '🔄 예측기 학습 중' : '⏸ 예측기 미시작')">⏸ 예측기 미시작</div>
+              </div>
+            </div>
+            <div class="muted" style="margin-bottom:8px;" x-text="artifactInfo.message">-</div>
+            <template x-if="artifactInfo.recentCheckpoints.length > 0">
+              <div style="margin-top:10px;">
+                <h3>최근 checkpoint 파일</h3>
+                <ul style="padding-left:18px;color:#cbd5e1;font-size:12px;line-height:1.7;">
+                  <template x-for="(f, i) in artifactInfo.recentCheckpoints" :key="'ck'+i">
+                    <li x-text="(f.path || f.name || f)">-</li>
+                  </template>
+                </ul>
+              </div>
+            </template>
+            <template x-if="artifactInfo.recentModelWeights.length > 0">
+              <div style="margin-top:10px;">
+                <h3>최근 model weight 파일</h3>
+                <ul style="padding-left:18px;color:#cbd5e1;font-size:12px;line-height:1.7;">
+                  <template x-for="(f, i) in artifactInfo.recentModelWeights" :key="'mw'+i">
+                    <li x-text="(f.path || f.name || f)">-</li>
+                  </template>
+                </ul>
+              </div>
+            </template>
+            <template x-if="artifactInfo.recentCheckpoints.length === 0 && artifactInfo.recentModelWeights.length === 0">
+              <div class="muted" style="margin-top:8px;font-size:11px;">아직 생성된 파일이 없습니다. tokenizer/predictor 진행 시 자동으로 표시됩니다.</div>
+            </template>
+          </div>
+        </template>
+      </div>
+    </div>
+
+    <!-- ==================== 탭: 기록 & 런 (P2 정식 패널 대기) ==================== -->
+    <div class="tab-panel" :class="{'active': activeTab === 'history'}">
+      <div class="card">
+        <h2>기록 & 런</h2>
+        <div class="muted">
+          현재 손실 곡선은 <a href="#" @click.prevent="activeTab='live-training'" style="color:#93c5fd;">실시간 학습</a> 탭에서 확인할 수 있습니다.<br>
+          전체 런 목록과 기록 패널은 <strong>P2</strong>에서 정식 추가됩니다. 그 전에는 <a href="/training" style="color:#93c5fd;">기존 학습 모니터</a>를 이용하세요.
+        </div>
+      </div>
+    </div>
+
+    <!-- ==================== 탭: 시스템 상태 (C4 강화) ==================== -->
+    <div class="tab-panel" :class="{'active': activeTab === 'system-health'}">
+      <template x-if="gpuLatest.util == null">
+        <div class="card"><div class="muted">GPU 데이터 불러오는 중...</div></div>
+      </template>
+      <template x-if="gpuLatest.util != null">
+        <div>
+          <!-- GPU 디바이스 정보 -->
+          <div class="card">
+            <h2>GPU 디바이스</h2>
+            <table style="width:100%;border-collapse:collapse;font-size:13px;">
+              <tr style="border-bottom:1px solid #243244;">
+                <td style="padding:8px 0;color:#64748b;width:40%;">모델명</td>
+                <td style="padding:8px 0;text-align:right;font-weight:700;" x-text="gpuDetail.name">-</td>
+              </tr>
+              <tr style="border-bottom:1px solid #243244;">
+                <td style="padding:8px 0;color:#64748b;">디바이스 수</td>
+                <td style="padding:8px 0;text-align:right;font-weight:700;" x-text="gpuDetail.gpuCount + '개'">-</td>
+              </tr>
+              <tr>
+                <td style="padding:8px 0;color:#64748b;">마지막 갱신 (KST)</td>
+                <td style="padding:8px 0;text-align:right;font-weight:700;" x-text="gpuDetail.generatedAt ? _toKst(gpuDetail.generatedAt) : '-'">-</td>
+              </tr>
+            </table>
+          </div>
+
+          <!-- 실시간 사용률 -->
+          <div class="card">
+            <h2>실시간 사용률</h2>
+            <table style="width:100%;border-collapse:collapse;font-size:13px;">
+              <tr style="border-bottom:1px solid #243244;">
+                <td style="padding:8px 0;color:#64748b;width:40%;">GPU 사용률</td>
+                <td style="padding:8px 0;text-align:right;font-weight:700;" x-text="gpuLatest.util != null ? gpuLatest.util.toFixed(1) + '%' : '-'">-</td>
+              </tr>
+              <tr style="border-bottom:1px solid #243244;">
+                <td style="padding:8px 0;color:#64748b;">온도</td>
+                <td style="padding:8px 0;text-align:right;font-weight:700;" x-text="gpuLatest.temp != null ? gpuLatest.temp.toFixed(1) + '°C' : '-'">-</td>
+              </tr>
+              <tr style="border-bottom:1px solid #243244;">
+                <td style="padding:8px 0;color:#64748b;">VRAM 사용률</td>
+                <td style="padding:8px 0;text-align:right;font-weight:700;" x-text="gpuLatest.vram != null ? gpuLatest.vram.toFixed(1) + '%' : '-'">-</td>
+              </tr>
+              <tr>
+                <td style="padding:8px 0;color:#64748b;">VRAM 사용 / 전체</td>
+                <td style="padding:8px 0;text-align:right;font-weight:700;"
+                    x-text="(gpuDetail.memoryUsedMib != null && gpuDetail.memoryTotalMib != null) ? (gpuDetail.memoryUsedMib.toFixed(0) + ' / ' + gpuDetail.memoryTotalMib.toFixed(0) + ' MiB') : '-'">-</td>
+              </tr>
+            </table>
+          </div>
+
+          <!-- 전력 -->
+          <div class="card">
+            <h2>전력</h2>
+            <table style="width:100%;border-collapse:collapse;font-size:13px;">
+              <tr style="border-bottom:1px solid #243244;">
+                <td style="padding:8px 0;color:#64748b;width:40%;">전력 한계</td>
+                <td style="padding:8px 0;text-align:right;font-weight:700;"
+                    x-text="gpuDetail.powerLimitWatts != null ? (gpuDetail.powerLimitWatts.toFixed(0) + ' W') : '-'">-</td>
+              </tr>
+              <tr>
+                <td style="padding:8px 0;color:#64748b;">실측 전력 사용</td>
+                <td style="padding:8px 0;text-align:right;font-weight:700;"
+                    x-text="gpuDetail.powerDrawAvailable && gpuDetail.powerDrawWatts != null ? (gpuDetail.powerDrawWatts.toFixed(0) + ' W') : '실측 불가'">실측 불가</td>
+              </tr>
+            </table>
+            <div class="muted" style="margin-top:8px;font-size:11px;" x-show="!gpuDetail.powerDrawAvailable">
+              현재 환경에서 nvidia-smi가 전력 실측값을 보고하지 않습니다. 추정값은 표시하지 않습니다.
+            </div>
+          </div>
+
+          <!-- 학습 폴링 정보 -->
+          <div class="card">
+            <h2>대시보드 폴링</h2>
+            <table style="width:100%;border-collapse:collapse;font-size:13px;">
+              <tr style="border-bottom:1px solid #243244;">
+                <td style="padding:8px 0;color:#64748b;width:40%;">폴링 간격</td>
+                <td style="padding:8px 0;text-align:right;font-weight:700;" x-text="refreshSeconds + ' 초'">-</td>
+              </tr>
+              <tr style="border-bottom:1px solid #243244;">
+                <td style="padding:8px 0;color:#64748b;">GPU ring buffer</td>
+                <td style="padding:8px 0;text-align:right;font-weight:700;" x-text="gpuRing.length + ' / 720 points'">-</td>
+              </tr>
+              <tr>
+                <td style="padding:8px 0;color:#64748b;">마지막 화면 갱신</td>
+                <td style="padding:8px 0;text-align:right;font-weight:700;" x-text="lastUpdated || '-'">-</td>
+              </tr>
+            </table>
+          </div>
+        </div>
+      </template>
+    </div>
+
+    <!-- ==================== 탭: 설정 ==================== -->
+    <div class="tab-panel" :class="{'active': activeTab === 'settings'}">
+      <div class="card">
+        <h2>설정</h2>
+        <div style="margin-bottom:14px;">
+          <label style="display:block;color:#93c5fd;font-size:13px;margin-bottom:6px;">폴링 간격 (초)</label>
+          <input type="number" min="2" max="60"
+                 x-model.number="refreshSeconds"
+                 style="width:120px;padding:8px;border-radius:8px;border:1px solid #334155;background:#0b1120;color:#e2e8f0;font-size:14px;">
+        </div>
+        <div class="muted">최소 2초, 최대 60초. 변경 즉시 적용됩니다.</div>
+      </div>
+    </div>
+
+  </main>
+</div>
+
+<!-- ── 푸터 ── -->
+<footer class="v2-footer">
+  Kronos 대시보드 &nbsp;|&nbsp; 기존 화면:
+  <a href="/">예측 UI</a>
+  <a href="/stom">STOM 대시보드</a>
+  <a href="/training">학습 모니터</a>
+</footer>
+
+<script>
+function kronosV2() {
+  return {
+    /* ─ 상태 ─ */
+    activeTab: 'live-training',
+    refreshSeconds: 5,
+    lastUpdated: '',
+
+    trainingStatus: '',
+    readiness: { level: 'waiting', label: '확인 중...', message: '' },
+    stages: [],
+    overallPercent: 0,
+    etaSeconds: null,
+    etaKst: '',
+    startKst: '',
+    nowKst: '',
+
+    lossPoints: [],          // [{step, loss}]
+    /* P0: 실시간 핵심 지표 */
+    metricsLatest: {
+      loss: null,             // 현재 loss
+      samplesPerSec: null,    // 학습 속도
+      learningRate: null,     // 학습률
+      epoch: null,            // 현재 epoch
+      epochs: null,           // 전체 epoch
+      runName: null,          // run 이름 (참고)
+    },
+    gpuRing: [],             // ring buffer max 720
+    gpuLatest: { util: null, temp: null, vram: null },
+    gpuDetail: {              // C4: 시스템 상태 탭 보강
+      name: '-',
+      memoryUsedMib: null,
+      memoryTotalMib: null,
+      powerLimitWatts: null,
+      powerDrawWatts: null,
+      powerDrawAvailable: false,
+      gpuCount: 0,
+      generatedAt: null
+    },
+
+    artifacts: [],
+    artifactInfo: {            // C3: 아티팩트 실측 카운트
+      loaded: false,
+      checkpointCount: 0,
+      modelWeightCount: 0,
+      predictorStarted: false,
+      predictorComplete: false,
+      checkpointReady: false,
+      label: '확인 중...',
+      message: '아티팩트 상태를 불러오는 중입니다.',
+      recentCheckpoints: [],
+      recentModelWeights: [],
+      runName: '',
+      tokenizerStage: null,
+      predictorStage: null
+    },
+
+    _lossChart: null,
+    _sparkUtil: null,
+    _sparkTemp: null,
+    _sparkVram: null,
+    _timers: [],
+
+    /* ─ 초기화 ─ */
+    init() {
+      this.$nextTick(() => {
+        this._initCharts();
+        this._loadLossHistory();
+        this._poll();
+      });
+    },
+
+    setTab(tab) {
+      this.activeTab = tab;
+      this.$nextTick(() => {
+        if (tab === 'live-training') {
+          if (this._lossChart) this._lossChart.resize();
+          if (this._sparkUtil) this._sparkUtil.resize();
+          if (this._sparkTemp) this._sparkTemp.resize();
+          if (this._sparkVram) this._sparkVram.resize();
+        }
+      });
+    },
+
+    /* ─ ECharts 초기화 ─ */
+    _initCharts() {
+      const darkTheme = {
+        backgroundColor: 'transparent',
+        textStyle: { color: '#94a3b8', fontFamily: getComputedStyle(document.documentElement).getPropertyValue('--chart-font-family') }
+      };
+
+      const lossEl = document.getElementById('loss-curve-chart');
+      if (lossEl && typeof echarts !== 'undefined') {
+        this._lossChart = echarts.init(lossEl, null, { renderer: 'canvas' });
+        this._lossChart.setOption(this._lossOption([], []));
+      }
+
+      ['util','temp','vram'].forEach(key => {
+        const el = document.getElementById('spark-' + key);
+        if (el && typeof echarts !== 'undefined') {
+          const inst = echarts.init(el, null, { renderer: 'canvas' });
+          this['_spark' + key.charAt(0).toUpperCase() + key.slice(1)] = inst;
+          inst.setOption(this._sparkOption([]));
+        }
+      });
+
+      window.addEventListener('resize', () => {
+        [this._lossChart, this._sparkUtil, this._sparkTemp, this._sparkVram].forEach(c => c && c.resize());
+      });
+    },
+
+    _lossOption(steps, losses) {
+      return {
+        backgroundColor: 'transparent',
+        grid: { left: 56, right: 24, top: 24, bottom: 56 },
+        xAxis: {
+          type: 'value',
+          name: 'Step',
+          nameTextStyle: { color: '#64748b', fontSize: 11 },
+          axisLabel: { color: '#64748b', fontSize: 10 },
+          splitLine: { lineStyle: { color: '#1e293b' } },
+          axisLine: { lineStyle: { color: '#334155' } },
+          /* C1: 데이터 영역에만 맞춰 빈 공간 제거 */
+          scale: true,
+          min: 'dataMin',
+          max: 'dataMax'
+        },
+        yAxis: {
+          type: 'value',
+          name: 'Loss',
+          nameTextStyle: { color: '#64748b', fontSize: 11 },
+          axisLabel: { color: '#64748b', fontSize: 10 },
+          splitLine: { lineStyle: { color: '#1e293b' } },
+          axisLine: { lineStyle: { color: '#334155' } },
+          scale: true
+        },
+        /* C1: 마우스 휠/드래그로 줌인, brush 영역 표시 */
+        dataZoom: [
+          { type: 'inside', xAxisIndex: 0, throttle: 50 },
+          {
+            type: 'slider',
+            xAxisIndex: 0,
+            height: 18,
+            bottom: 6,
+            backgroundColor: 'rgba(11,17,32,.5)',
+            borderColor: '#243244',
+            fillerColor: 'rgba(56,189,248,.18)',
+            handleStyle: { color: '#38bdf8', borderColor: '#38bdf8' },
+            textStyle: { color: '#64748b', fontSize: 9 }
+          }
+        ],
+        series: [{
+          type: 'line',
+          data: steps.map((s, i) => [s, losses[i]]),
+          smooth: true,
+          symbol: 'none',
+          lineStyle: { color: '#38bdf8', width: 2 },
+          areaStyle: { color: { type: 'linear', x: 0, y: 0, x2: 0, y2: 1, colorStops: [{ offset: 0, color: 'rgba(56,189,248,.25)' }, { offset: 1, color: 'rgba(56,189,248,0)' }] } }
+        }],
+        tooltip: { trigger: 'axis', backgroundColor: '#111827', borderColor: '#243244', textStyle: { color: '#e2e8f0', fontSize: 12 } }
+      };
+    },
+
+    _sparkOption(data) {
+      return {
+        backgroundColor: 'transparent',
+        grid: { left: 0, right: 0, top: 0, bottom: 0 },
+        xAxis: { type: 'category', show: false },
+        yAxis: { type: 'value', show: false },
+        series: [{
+          type: 'line',
+          data: data,
+          smooth: true,
+          symbol: 'none',
+          lineStyle: { color: '#38bdf8', width: 1.5 },
+          areaStyle: { color: { type: 'linear', x: 0, y: 0, x2: 0, y2: 1, colorStops: [{ offset: 0, color: 'rgba(56,189,248,.3)' }, { offset: 1, color: 'rgba(56,189,248,0)' }] } }
+        }]
+      };
+    },
+
+    /* ─ 폴링 ─ */
+    _poll() {
+      this._clearTimers();
+      this._fetchStatus();
+      this._fetchGpu();
+      this._fetchArtifacts();
+      this._updateNow();
+
+      const t1 = setInterval(() => this._fetchStatus(), this.refreshSeconds * 1000);
+      const t2 = setInterval(() => this._fetchGpu(), this.refreshSeconds * 1000);
+      const t3 = setInterval(() => this._fetchArtifacts(), 30000);
+      const t4 = setInterval(() => this._updateNow(), 1000);
+      this._timers = [t1, t2, t3, t4];
+
+      this.$watch('refreshSeconds', () => { this._poll(); });
+    },
+
+    _clearTimers() {
+      this._timers.forEach(t => clearInterval(t));
+      this._timers = [];
+    },
+
+    /* ─ /api/training/status ─ */
+    async _fetchStatus() {
+      try {
+        const r = await fetch('/api/training/status');
+        if (!r.ok) return;
+        const d = await r.json();
+
+        this.trainingStatus = d.status || '';
+        this.stages = d.stages || [];
+        this.readiness = d.readiness || { level: 'waiting', label: '-', message: '-' };
+
+        /* 전체 진행률 — latest_stage.stage_percent 우선 */
+        const latest = d.latest_stage || {};
+        try { this.overallPercent = parseFloat(latest.stage_percent || 0); } catch(e) { this.overallPercent = 0; }
+
+        /* ETA — latest_stage 아래 필드를 우선으로 읽는다 */
+        const updatedAt = latest.updated_at || d.updated_at || null;
+        this.etaSeconds = latest.eta_seconds != null ? latest.eta_seconds
+                           : (d.eta_seconds != null ? d.eta_seconds : null);
+        this._computeEta(this.etaSeconds, updatedAt);
+
+        /* 시작 시각 */
+        this.startKst = updatedAt ? this._toKst(updatedAt) : '-';
+
+        this.lastUpdated = new Date().toLocaleTimeString('ko-KR', { timeZone: 'Asia/Seoul' });
+
+        /* loss 폴링 (W3) — status 갱신 후 히스토리도 갱신 */
+        this._fetchLossLatest();
+      } catch(e) { /* 네트워크 오류 무시 */ }
+    },
+
+    _computeEta(etaSeconds, updatedAt) {
+      if (etaSeconds == null || !(etaSeconds > 0)) {
+        this.etaKst = '-';
+        return;
+      }
+      /* 기준 시각: latest_stage.updated_at (없으면 현재 시각으로 폴백) */
+      const base = updatedAt ? Date.parse(updatedAt) : Date.now();
+      const finishMs = (Number.isNaN(base) ? Date.now() : base) + etaSeconds * 1000;
+      this.etaKst = new Date(finishMs).toLocaleString('ko-KR', { timeZone: 'Asia/Seoul' });
+    },
+
+    /* ─ Loss History ─ */
+    async _loadLossHistory() {
+      try {
+        const r = await fetch('/api/training/history?limit=200');
+        if (!r.ok) return;
+        const d = await r.json();
+        const pts = d.points || d.history || [];
+        this._appendLossPoints(pts);
+        /* P0: 초기 로드 시점에도 핵심 지표 동기화 */
+        const lp = d.latest_point || {};
+        const lpg = d.latest_progress || {};
+        this.metricsLatest = {
+          loss: lp.loss != null ? lp.loss : (lpg.last_loss != null ? lpg.last_loss : null),
+          samplesPerSec: lpg.samples_per_second != null ? lpg.samples_per_second : null,
+          learningRate: lp.learning_rate != null ? lp.learning_rate : null,
+          epoch: lp.epoch != null ? lp.epoch : null,
+          epochs: lp.epochs != null ? lp.epochs : null,
+          runName: d.run_name != null ? d.run_name : null,
+        };
+      } catch(e) {}
+    },
+
+    async _fetchLossLatest() {
+      try {
+        const r = await fetch('/api/training/history?limit=50');
+        if (!r.ok) return;
+        const d = await r.json();
+        const pts = d.points || d.history || [];
+        this._appendLossPoints(pts);
+
+        /* P0: latest_point / latest_progress 에서 핵심 지표 추출 */
+        const lp = d.latest_point || {};
+        const lpg = d.latest_progress || {};
+        const samplesPerSec = lpg.samples_per_second != null
+          ? lpg.samples_per_second
+          : (this.metricsLatest.samplesPerSec);
+        this.metricsLatest = {
+          loss: lp.loss != null ? lp.loss : (lpg.last_loss != null ? lpg.last_loss : this.metricsLatest.loss),
+          samplesPerSec: samplesPerSec,
+          learningRate: lp.learning_rate != null ? lp.learning_rate : this.metricsLatest.learningRate,
+          epoch: lp.epoch != null ? lp.epoch : this.metricsLatest.epoch,
+          epochs: lp.epochs != null ? lp.epochs : this.metricsLatest.epochs,
+          runName: d.run_name != null ? d.run_name : this.metricsLatest.runName,
+        };
+      } catch(e) {}
+    },
+
+    _appendLossPoints(pts) {
+      if (!Array.isArray(pts) || pts.length === 0) return;
+      const existing = new Set(this.lossPoints.map(p => p.step));
+      pts.forEach(p => {
+        if (p.step != null && p.loss != null && !existing.has(p.step)) {
+          this.lossPoints.push({ step: p.step, loss: p.loss });
+          existing.add(p.step);
+        }
+      });
+      /* 최대 1000 포인트 — 초과 시 oldest 폐기 */
+      if (this.lossPoints.length > 1000) {
+        this.lossPoints = this.lossPoints.slice(this.lossPoints.length - 1000);
+      }
+      this.lossPoints.sort((a, b) => a.step - b.step);
+      this._updateLossChart();
+    },
+
+    _updateLossChart() {
+      if (!this._lossChart) return;
+      const steps = this.lossPoints.map(p => p.step);
+      const losses = this.lossPoints.map(p => p.loss);
+      this._lossChart.setOption(this._lossOption(steps, losses));
+    },
+
+    /* ─ GPU ─ */
+    async _fetchGpu() {
+      try {
+        const r = await fetch('/api/training/gpu');
+        if (!r.ok) return;
+        const d = await r.json();
+        const gpu = (d.gpus && d.gpus[0]) || d;
+
+        const util = gpu.utilization_gpu_percent != null ? parseFloat(gpu.utilization_gpu_percent) : null;
+        const temp = gpu.temperature_c != null ? parseFloat(gpu.temperature_c) : null;
+        const vramPct = gpu.memory_used_percent != null ? parseFloat(gpu.memory_used_percent) : null;
+
+        this.gpuLatest = { util, temp, vram: vramPct };
+        /* C4: 시스템 상태 탭용 상세 정보 */
+        this.gpuDetail = {
+          name: gpu.name || '-',
+          memoryUsedMib: gpu.memory_used_mib != null ? gpu.memory_used_mib : null,
+          memoryTotalMib: gpu.memory_total_mib != null ? gpu.memory_total_mib : null,
+          powerLimitWatts: gpu.power_limit_watts != null ? gpu.power_limit_watts : null,
+          powerDrawWatts: gpu.power_draw_watts != null ? gpu.power_draw_watts : null,
+          powerDrawAvailable: !!gpu.power_draw_available,
+          gpuCount: Array.isArray(d.gpus) ? d.gpus.length : 1,
+          generatedAt: d.generated_at || null
+        };
+
+        /* ring buffer 720 pts */
+        this.gpuRing.push({ util, temp, vram: vramPct });
+        if (this.gpuRing.length > 720) this.gpuRing = this.gpuRing.slice(this.gpuRing.length - 720);
+
+        this._updateSparklines();
+      } catch(e) {}
+    },
+
+    _updateSparklines() {
+      const ring = this.gpuRing;
+      if (this._sparkUtil) this._sparkUtil.setOption(this._sparkOption(ring.map(p => p.util)));
+      if (this._sparkTemp) this._sparkTemp.setOption(this._sparkOption(ring.map(p => p.temp)));
+      if (this._sparkVram) this._sparkVram.setOption(this._sparkOption(ring.map(p => p.vram)));
+    },
+
+    /* ─ Artifacts ─ */
+    async _fetchArtifacts() {
+      try {
+        const r = await fetch('/api/training/artifacts');
+        if (!r.ok) return;
+        const d = await r.json();
+        this.artifactInfo = {
+          loaded: true,
+          checkpointCount: d.checkpoint_file_count != null ? d.checkpoint_file_count : 0,
+          modelWeightCount: d.model_weight_file_count != null ? d.model_weight_file_count : 0,
+          predictorStarted: !!d.predictor_started,
+          predictorComplete: !!(d.stages && d.stages.predictor && d.stages.predictor.checkpoint_ready),
+          checkpointReady: !!d.checkpoint_ready,
+          label: d.label || '',
+          message: d.message || '',
+          recentCheckpoints: Array.isArray(d.recent_checkpoint_files) ? d.recent_checkpoint_files.slice(0, 5) : [],
+          recentModelWeights: Array.isArray(d.recent_model_weight_files) ? d.recent_model_weight_files.slice(0, 5) : [],
+          runName: d.run_name || '',
+          tokenizerStage: d.stages && d.stages.tokenizer ? d.stages.tokenizer : null,
+          predictorStage: d.stages && d.stages.predictor ? d.stages.predictor : null,
+        };
+        /* 하위 호환: 기존 artifacts 배열 표시 경로도 유지 */
+        this.artifacts = (this.artifactInfo.recentCheckpoints || []).concat(this.artifactInfo.recentModelWeights || []);
+      } catch(e) {}
+    },
+
+    /* ─ 현재 시각 (KST) ─ */
+    _updateNow() {
+      this.nowKst = new Date().toLocaleString('ko-KR', { timeZone: 'Asia/Seoul' });
+    },
+
+    /* ─ 날짜 변환 ─ */
+    _toKst(isoOrTs) {
+      try {
+        const d = typeof isoOrTs === 'number' ? new Date(isoOrTs * 1000) : new Date(isoOrTs);
+        return d.toLocaleString('ko-KR', { timeZone: 'Asia/Seoul' });
+      } catch(e) { return '-'; }
+    }
+  };
+}
+</script>
+</body>
+</html>

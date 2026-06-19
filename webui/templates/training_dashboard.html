@@ -1,0 +1,623 @@
+﻿<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>STOM Kronos Training Monitor</title>
+  <style>
+    body { margin: 0; font-family: "Segoe UI", "Malgun Gothic", sans-serif; background: #0f172a; color: #e2e8f0; }
+    header { padding: 28px 40px; background: linear-gradient(135deg, #111827, #1d4ed8); border-bottom: 1px solid rgba(255,255,255,.12); }
+    header h1 { margin: 0 0 8px 0; font-size: 30px; }
+    header p { margin: 0; color: #dbeafe; line-height: 1.5; }
+    main { max-width: 1480px; margin: 0 auto; padding: 24px; }
+    .grid { display: grid; grid-template-columns: 360px 1fr; gap: 18px; align-items: start; }
+    .card { background: #111827; border: 1px solid #243244; border-radius: 14px; padding: 18px; box-shadow: 0 14px 30px rgba(0,0,0,.2); margin-bottom: 18px; }
+    h2 { font-size: 18px; margin: 0 0 14px 0; color: #bfdbfe; }
+    label { display: block; margin: 10px 0 6px 0; color: #93c5fd; font-weight: 700; font-size: 13px; }
+    select, button { width: 100%; padding: 11px; border-radius: 9px; border: 1px solid #334155; background: #0b1120; color: #e2e8f0; box-sizing: border-box; }
+    button { background: #2563eb; cursor: pointer; font-weight: 800; margin-top: 10px; }
+    button:hover { background: #1d4ed8; }
+    a { color: #93c5fd; }
+    .metric { display: grid; grid-template-columns: 1fr auto; gap: 10px; padding: 8px 0; border-bottom: 1px dashed #334155; }
+    .metric span:last-child { color: #f8fafc; font-weight: 800; }
+    .bar { width: 100%; height: 16px; border-radius: 999px; background: #1f2937; overflow: hidden; border: 1px solid #334155; }
+    .fill { height: 100%; width: 0%; background: linear-gradient(90deg, #22c55e, #38bdf8); transition: width .4s ease; }
+    .stage { border: 1px solid #334155; border-radius: 12px; padding: 14px; margin: 12px 0; background: #0b1120; }
+    .stage h3 { display: flex; justify-content: space-between; gap: 12px; margin: 0 0 10px 0; font-size: 16px; }
+    .badge { border-radius: 999px; padding: 3px 9px; font-size: 12px; font-weight: 800; }
+    .running { background: #1e40af; color: #dbeafe; }
+    .ok { background: #14532d; color: #dcfce7; }
+    .failed { background: #7f1d1d; color: #fee2e2; }
+    .dry_run, .unknown { background: #374151; color: #e5e7eb; }
+    pre { margin: 0; white-space: pre-wrap; word-break: break-all; background: #020617; color: #d1fae5; border: 1px solid #1e293b; border-radius: 12px; padding: 14px; min-height: 360px; max-height: 620px; overflow: auto; line-height: 1.45; }
+    table { width: 100%; border-collapse: collapse; }
+    th, td { text-align: right; border-bottom: 1px solid #243244; padding: 8px 10px; font-size: 13px; }
+    th:first-child, td:first-child { text-align: left; }
+    .muted { color: #94a3b8; font-size: 13px; line-height: 1.45; }
+    .warn { color: #fde68a; }
+    .error { color: #fecaca; }
+    .readiness-card { border-left: 5px solid #f59e0b; }
+    .readiness-card.ready { border-left-color: #22c55e; }
+    .readiness-card.training { border-left-color: #38bdf8; }
+    .readiness-card.waiting { border-left-color: #f59e0b; }
+    .readiness-label { display: inline-block; border-radius: 999px; padding: 5px 10px; font-weight: 900; background: #422006; color: #fde68a; }
+    .readiness-card.ready .readiness-label { background: #14532d; color: #dcfce7; }
+    .readiness-card.training .readiness-label { background: #0c4a6e; color: #bae6fd; }
+    .artifact-list { margin: 10px 0 0 0; padding-left: 18px; color: #cbd5e1; font-size: 12px; line-height: 1.5; }
+    .history-table { margin-top: 10px; }
+    .history-table td, .history-table th { font-size: 12px; }
+    .nav { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 16px; }
+    .nav a { border: 1px solid rgba(255,255,255,.25); border-radius: 999px; padding: 7px 12px; text-decoration: none; background: rgba(15, 23, 42, .35); color: #dbeafe; font-weight: 800; }
+    .inline { display: flex; gap: 8px; align-items: center; }
+    .inline input[type="checkbox"] { width: auto; }
+    input { width: 100%; padding: 11px; border-radius: 9px; border: 1px solid #334155; background: #0b1120; color: #e2e8f0; box-sizing: border-box; }
+    .refresh-pill { display: inline-block; border: 1px solid #334155; border-radius: 999px; padding: 5px 9px; color: #bfdbfe; background: #0b1120; font-size: 12px; font-weight: 800; }
+    @media (max-width: 980px) { .grid { grid-template-columns: 1fr; } }
+  </style>
+</head>
+<body
+  data-default-refresh-seconds="{{ default_training_refresh_seconds }}"
+  data-min-refresh-seconds="{{ min_training_refresh_seconds }}"
+  data-max-refresh-seconds="{{ max_training_refresh_seconds }}"
+>
+<header>
+  <h1>STOM Kronos 실시간 학습 모니터</h1>
+  <p>Long STOM tick training can be monitored in the browser with progress, ETA, finish datetime(KST), logs, GPU usage, and power.</p>
+  <div class="nav">
+    <a href="/">Kronos 예측 UI</a>
+    <a href="/stom">STOM 예측/성과 대시보드</a>
+    <a href="/training">실시간 학습 모니터</a>
+  </div>
+</header>
+<main>
+  <div class="grid">
+    <section>
+      <div class="card">
+        <h2>학습 실행 선택</h2>
+        <label for="runSelect">Run</label>
+        <select id="runSelect" onchange="selectRun()"></select>
+        <button onclick="refreshAll()">새로고침</button>
+        <p class="muted">실제 학습 시작 명령은 터미널에서 실행하고, 이 페이지는 `finetune/outputs/*/logs/*.progress.json`과 로그 파일을 읽어 표시합니다.</p>
+      </div>
+      <div class="card">
+        <h2>자동 새로고침</h2>
+        <label class="inline" for="autoRefreshEnabled">
+          <input id="autoRefreshEnabled" type="checkbox" checked onchange="applyAutoRefreshSettings()">
+          학습 running 중 자동 새로고침
+        </label>
+        <label for="refreshIntervalSeconds">새로고침 간격(초)</label>
+        <input
+          id="refreshIntervalSeconds"
+          type="number"
+          min="{{ min_training_refresh_seconds }}"
+          max="{{ max_training_refresh_seconds }}"
+          value="{{ default_training_refresh_seconds }}"
+          onchange="applyAutoRefreshSettings()"
+        >
+        <button onclick="applyAutoRefreshSettings()">설정 적용</button>
+        <p class="muted">
+          현재 설정: <span id="refreshIntervalLabel" class="refresh-pill">-</span>
+          · 상태: <span id="autoRefreshStatus" class="refresh-pill">초기화 중</span>
+        </p>
+        <p class="muted">Time zone: <span class="refresh-pill">Asia/Seoul / KST</span></p>
+        <p class="muted">Last refresh(KST): <span id="lastRefreshAt">-</span> / Next refresh(KST): <span id="nextRefreshAt">-</span></p>
+      </div>
+      <div class="card">
+        <h2>전체 진행</h2>
+        <div class="bar"><div id="overallFill" class="fill"></div></div>
+        <div id="overallMetrics"></div>
+      </div>
+      <div id="runtimeSummaryCard" class="card">
+        <h2>학습 속도 / ETA</h2>
+        <div id="runtimeSummary" class="muted">학습 속도와 남은 시간을 확인하는 중...</div>
+        <div id="runtimeMetrics"></div>
+      </div>
+      <div id="trainingReadinessCard" class="card readiness-card waiting">
+        <h2>예측 성과 준비 상태</h2>
+        <p><span id="trainingReadinessLabel" class="readiness-label">성과 대기</span></p>
+        <p id="trainingReadinessMessage" class="muted">checkpoint와 predictor 상태를 확인하는 중입니다.</p>
+        <div id="trainingReadinessMetrics"></div>
+      </div>
+      <div id="trainingArtifactCard" class="card readiness-card waiting">
+        <h2>Checkpoint / Predictor Artifact</h2>
+        <p><span id="trainingArtifactLabel" class="readiness-label">checkpoint 대기</span></p>
+        <p id="trainingArtifactMessage" class="muted">현재 run의 checkpoint/weight 파일을 확인하는 중입니다.</p>
+        <div id="trainingArtifactMetrics"></div>
+        <ul id="trainingArtifactFiles" class="artifact-list"></ul>
+      </div>
+      <div class="card">
+        <h2>GPU / 전력</h2>
+        <div id="gpuStatus" class="muted">GPU 정보를 불러오는 중...</div>
+        <div id="gpuSummaryMetrics"></div>
+        <table>
+          <thead><tr><th>GPU</th><th>Util %</th><th>VRAM %</th><th>VRAM</th><th>Power</th><th>Limit</th><th>Temp</th></tr></thead>
+          <tbody id="gpuRows"></tbody>
+        </table>
+      </div>
+      <div class="card">
+        <h2>다음 명령</h2>
+        <p class="muted">모니터 확인 후 2025 pred60 전체 학습을 시작할 때의 권장 명령입니다.</p>
+        <pre>C:\Python\64\Python3119\python.exe finetune\run_stom_1s_finetune.py --horizon 60 --mode full --train-stage both --dataset-dir finetune\qlib_exports\stom_1s_grid_pred60_2025\processed_datasets --run-name stom_1s_grid_pred60_2025_full_small --dataset-sample-mode full_sequential --batch-size 4 --num-workers 0 --n-train-iter 18806883 --n-val-iter 3925397 --log-interval 1000</pre>
+      </div>
+      <div class="card">
+        <h2>연결</h2>
+        <p><a href="/stom">예측 결과 대시보드(/stom)</a></p>
+      </div>
+    </section>
+    <section>
+      <div class="card">
+        <h2>단계별 진행률</h2>
+        <div id="stageList" class="muted">학습 run을 찾는 중...</div>
+      </div>
+      <div class="card">
+        <h2>진행률 히스토리</h2>
+        <div id="historySummary" class="muted">최근 학습 step 히스토리를 불러오는 중...</div>
+        <table class="history-table">
+          <thead><tr><th>Step</th><th>Stage %</th><th>Overall %</th><th>LR</th><th>Loss</th></tr></thead>
+          <tbody id="historyRows"></tbody>
+        </table>
+      </div>
+      <div class="card">
+        <h2>실시간 로그 tail</h2>
+        <pre id="logBox">로그를 불러오는 중...</pre>
+      </div>
+    </section>
+  </div>
+</main>
+<script>
+let currentRun = null;
+let currentStage = null;
+let latestRunStatus = 'unknown';
+let autoRefreshTimer = null;
+let countdownTimer = null;
+let nextRefreshEpochMs = null;
+let refreshInFlight = false;
+
+const DEFAULT_REFRESH_SECONDS = Number(document.body.dataset.defaultRefreshSeconds || 5);
+const MIN_REFRESH_SECONDS = Number(document.body.dataset.minRefreshSeconds || 2);
+const MAX_REFRESH_SECONDS = Number(document.body.dataset.maxRefreshSeconds || 3600);
+const RUNNING_STATUSES = new Set(['running']);
+const KST_TIME_ZONE = 'Asia/Seoul';
+const KST_LOCALE = 'ko-KR';
+const KST_DATE_TIME_FORMAT = {
+  timeZone: KST_TIME_ZONE,
+  year: 'numeric',
+  month: '2-digit',
+  day: '2-digit',
+  hour: '2-digit',
+  minute: '2-digit',
+  second: '2-digit',
+  hour12: false,
+};
+const KST_TIME_FORMAT = {
+  timeZone: KST_TIME_ZONE,
+  hour: '2-digit',
+  minute: '2-digit',
+  second: '2-digit',
+  hour12: false,
+};
+
+function pct(value) {
+  const n = Number(value || 0);
+  return Math.max(0, Math.min(100, n)).toFixed(2);
+}
+
+function formatSeconds(value) {
+  if (value === null || value === undefined || Number.isNaN(Number(value))) return '-';
+  let seconds = Math.max(0, Math.floor(Number(value)));
+  const days = Math.floor(seconds / 86400); seconds %= 86400;
+  const hours = Math.floor(seconds / 3600); seconds %= 3600;
+  const minutes = Math.floor(seconds / 60); seconds %= 60;
+  const parts = [];
+  if (days) parts.push(`${days}일`);
+  if (hours || days) parts.push(`${hours}시간`);
+  if (minutes || hours || days) parts.push(`${minutes}분`);
+  parts.push(`${seconds}초`);
+  return parts.join(' ');
+}
+
+function formatNumber(value, digits = 2) {
+  if (value === null || value === undefined || Number.isNaN(Number(value))) return '-';
+  return Number(value).toFixed(digits);
+}
+
+function formatPercent(value, digits = 2) {
+  const formatted = formatNumber(value, digits);
+  return formatted === '-' ? '-' : `${formatted}%`;
+}
+
+function formatMib(value) {
+  if (value === null || value === undefined || Number.isNaN(Number(value))) return '-';
+  return `${Number(value).toLocaleString(undefined, { maximumFractionDigits: 0 })} MiB`;
+}
+
+function formatWatts(value) {
+  if (value === null || value === undefined || Number.isNaN(Number(value))) return '-';
+  return `${Number(value).toFixed(1)} W`;
+}
+
+function parseDateValue(value) {
+  if (!value) return null;
+  const date = value instanceof Date ? value : new Date(value);
+  return Number.isNaN(date.getTime()) ? null : date;
+}
+
+function formatKstDateTime(value) {
+  const date = parseDateValue(value);
+  if (!date) return '-';
+  return `${date.toLocaleString(KST_LOCALE, KST_DATE_TIME_FORMAT)} KST`;
+}
+
+function formatKstTime(value) {
+  const date = parseDateValue(value);
+  if (!date) return '-';
+  return `${date.toLocaleTimeString(KST_LOCALE, KST_TIME_FORMAT)} KST`;
+}
+
+function formatKstEtaTarget(seconds) {
+  if (seconds === null || seconds === undefined || Number.isNaN(Number(seconds))) return '-';
+  return formatKstDateTime(new Date(Date.now() + Math.max(0, Number(seconds)) * 1000));
+}
+
+function badge(status) {
+  const s = String(status || 'unknown');
+  const cssClass = s.replace(/[^a-zA-Z0-9_-]/g, '_');
+  return `<span class="badge ${cssClass}">${escapeHtml(s)}</span>`;
+}
+
+function metric(label, value) {
+  return `<div class="metric"><span>${escapeHtml(label)}</span><span>${escapeHtml(value ?? '-')}</span></div>`;
+}
+
+function readinessClass(level) {
+  const value = String(level || 'waiting').replace(/[^a-zA-Z0-9_-]/g, '_');
+  return ['ready', 'training', 'waiting'].includes(value) ? value : 'waiting';
+}
+
+function renderReadiness(readiness) {
+  const safeReadiness = readiness || {};
+  const card = document.getElementById('trainingReadinessCard');
+  const level = readinessClass(safeReadiness.level);
+  card.className = `card readiness-card ${level}`;
+  document.getElementById('trainingReadinessLabel').textContent = safeReadiness.label || '성과 대기';
+  document.getElementById('trainingReadinessMessage').textContent =
+    safeReadiness.message || 'checkpoint와 predictor 완료 전까지 예측 성과는 대기 상태입니다.';
+  document.getElementById('trainingReadinessMetrics').innerHTML = [
+    metric('predictor 시작', safeReadiness.predictor_started ? '예' : '아니오'),
+    metric('predictor 완료', safeReadiness.predictor_complete ? '예' : '아니오'),
+    metric('성과 사용 가능', safeReadiness.performance_ready ? '예' : '아니오'),
+  ].join('');
+}
+
+function renderArtifacts(artifacts) {
+  const safeArtifacts = artifacts || {};
+  const card = document.getElementById('trainingArtifactCard');
+  const level = readinessClass(safeArtifacts.level);
+  card.className = `card readiness-card ${level}`;
+  document.getElementById('trainingArtifactLabel').textContent = safeArtifacts.label || 'checkpoint 대기';
+  document.getElementById('trainingArtifactMessage').textContent =
+    safeArtifacts.message || 'checkpoint/model weight 파일이 아직 확인되지 않았습니다.';
+  const tokenizer = (safeArtifacts.stages || {}).tokenizer || {};
+  const predictor = (safeArtifacts.stages || {}).predictor || {};
+  document.getElementById('trainingArtifactMetrics').innerHTML = [
+    metric('model weight 파일', safeArtifacts.model_weight_file_count ?? 0),
+    metric('checkpoint 후보 파일', safeArtifacts.checkpoint_file_count ?? 0),
+    metric('tokenizer checkpoint', tokenizer.checkpoint_ready ? `준비(${tokenizer.checkpoint_file_count || 0})` : '대기'),
+    metric('predictor 시작', safeArtifacts.predictor_started ? '예' : '아니오'),
+    metric('predictor checkpoint', predictor.checkpoint_ready ? `준비(${predictor.checkpoint_file_count || 0})` : '대기'),
+    metric('Artifact updated(KST)', formatKstDateTime(safeArtifacts.latest_artifact_updated_at)),
+  ].join('');
+  const files = safeArtifacts.recent_checkpoint_files || safeArtifacts.recent_model_weight_files || [];
+  document.getElementById('trainingArtifactFiles').innerHTML = files.slice(0, 5)
+    .map(file => `<li>${escapeHtml(file.path)} · ${escapeHtml(file.bytes ?? '-')} bytes</li>`)
+    .join('');
+}
+
+function renderRuntimeSummary(status) {
+  const data = status || {};
+  const latest = data.latest_stage || {};
+  const step = latest.step ?? '-';
+  const totalSteps = latest.total_steps ?? '-';
+  const stagePct = pct(latest.stage_percent);
+  const overallPct = pct(data.overall_percent);
+  const etaText = formatSeconds(latest.eta_seconds);
+  const finishText = formatKstEtaTarget(latest.eta_seconds);
+  document.getElementById('runtimeSummary').textContent =
+    `${latest.train_stage || '-'} · ${step} / ${totalSteps} · 단계 ${stagePct}% · 전체 ${overallPct}% · ETA ${etaText} / finish(KST) ${finishText}`;
+  document.getElementById('runtimeMetrics').innerHTML = [
+    metric('현재 단계', latest.train_stage || '-'),
+    metric('단계 상태', latest.status || data.status || '-'),
+    metric('samples/sec', formatNumber(latest.samples_per_second, 2)),
+    metric('경과 시간', formatSeconds(latest.elapsed_seconds)),
+    metric('남은 시간', etaText),
+    metric('Finish time(KST)', finishText),
+    metric('최근 loss', latest.last_loss ?? '-'),
+    metric('Latest update(KST)', formatKstDateTime(latest.updated_at || data.updated_at || data.generated_at)),
+  ].join('');
+}
+
+function escapeHtml(value) {
+  return String(value ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
+function clampRefreshSeconds(value) {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) return DEFAULT_REFRESH_SECONDS;
+  return Math.max(MIN_REFRESH_SECONDS, Math.min(MAX_REFRESH_SECONDS, Math.floor(parsed)));
+}
+
+function getRefreshSeconds() {
+  const input = document.getElementById('refreshIntervalSeconds');
+  const seconds = clampRefreshSeconds(input.value);
+  input.value = seconds;
+  return seconds;
+}
+
+function isAutoRefreshEnabled() {
+  return document.getElementById('autoRefreshEnabled').checked;
+}
+
+function shouldAutoRefresh() {
+  return isAutoRefreshEnabled() && (RUNNING_STATUSES.has(latestRunStatus) || latestRunStatus === 'unknown');
+}
+
+function setAutoRefreshStatus(text) {
+  document.getElementById('autoRefreshStatus').textContent = text;
+}
+
+function clearAutoRefreshTimers() {
+  if (autoRefreshTimer) clearTimeout(autoRefreshTimer);
+  if (countdownTimer) clearInterval(countdownTimer);
+  autoRefreshTimer = null;
+  countdownTimer = null;
+  nextRefreshEpochMs = null;
+}
+
+function updateCountdown() {
+  const target = document.getElementById('nextRefreshAt');
+  if (!nextRefreshEpochMs) {
+    target.textContent = '-';
+    return;
+  }
+  const remaining = Math.max(0, Math.ceil((nextRefreshEpochMs - Date.now()) / 1000));
+  target.textContent = `${formatKstTime(new Date(nextRefreshEpochMs))} (${remaining}s later)`;
+}
+
+function scheduleNextRefresh() {
+  clearAutoRefreshTimers();
+  const seconds = getRefreshSeconds();
+  document.getElementById('refreshIntervalLabel').textContent = `${seconds}초`;
+  localStorage.setItem('stomTrainingAutoRefreshSeconds', String(seconds));
+  localStorage.setItem('stomTrainingAutoRefreshEnabled', isAutoRefreshEnabled() ? '1' : '0');
+
+  if (!shouldAutoRefresh()) {
+    const reason = isAutoRefreshEnabled()
+      ? `대기 중: 현재 상태 ${latestRunStatus}`
+      : '꺼짐';
+    setAutoRefreshStatus(reason);
+    document.getElementById('nextRefreshAt').textContent = '-';
+    return;
+  }
+
+  nextRefreshEpochMs = Date.now() + seconds * 1000;
+  setAutoRefreshStatus(`켜짐 · ${latestRunStatus}`);
+  updateCountdown();
+  countdownTimer = setInterval(updateCountdown, 1000);
+  autoRefreshTimer = setTimeout(() => refreshAll({ reason: 'auto' }), seconds * 1000);
+}
+
+function applyAutoRefreshSettings() {
+  scheduleNextRefresh();
+}
+
+function restoreAutoRefreshSettings() {
+  const savedSeconds = localStorage.getItem('stomTrainingAutoRefreshSeconds');
+  const savedEnabled = localStorage.getItem('stomTrainingAutoRefreshEnabled');
+  document.getElementById('refreshIntervalSeconds').value = clampRefreshSeconds(savedSeconds || DEFAULT_REFRESH_SECONDS);
+  document.getElementById('autoRefreshEnabled').checked = savedEnabled === null ? true : savedEnabled === '1';
+}
+
+async function refreshRuns() {
+  const res = await fetch('/api/training/runs');
+  const data = await res.json();
+  const select = document.getElementById('runSelect');
+  select.innerHTML = '';
+  const runs = data.runs || [];
+  if (!runs.length) {
+    select.innerHTML = '<option value="">학습 run 없음</option>';
+    currentRun = null;
+    return;
+  }
+  for (const run of runs) {
+    const option = document.createElement('option');
+    option.value = run.name;
+    option.textContent = `${run.name} · ${run.status} · ${pct(run.overall_percent)}%`;
+    select.appendChild(option);
+  }
+  if (!currentRun || !runs.some(run => run.name === currentRun)) currentRun = runs[0].name;
+  select.value = currentRun;
+}
+
+function selectRun() {
+  currentRun = document.getElementById('runSelect').value || null;
+  currentStage = null;
+  refreshAll({ reason: 'select-run' });
+}
+
+async function refreshStatus() {
+  if (!currentRun) {
+    document.getElementById('stageList').textContent = '아직 표시할 학습 run이 없습니다.';
+    document.getElementById('overallFill').style.width = '0%';
+    document.getElementById('runtimeSummary').textContent = '아직 표시할 학습 run이 없습니다.';
+    document.getElementById('runtimeMetrics').innerHTML = '';
+    return;
+  }
+  const res = await fetch(`/api/training/status?run=${encodeURIComponent(currentRun)}`);
+  const data = await res.json();
+  if (data.error) {
+    document.getElementById('stageList').innerHTML = `<span class="error">${escapeHtml(data.error)}</span>`;
+    latestRunStatus = 'unknown';
+    return;
+  }
+  latestRunStatus = data.status || 'unknown';
+  const overall = pct(data.overall_percent);
+  document.getElementById('overallFill').style.width = `${overall}%`;
+  renderReadiness(data.readiness);
+  renderRuntimeSummary(data);
+  document.getElementById('overallMetrics').innerHTML = [
+    metric('Run', data.run_name),
+    metric('상태', data.status),
+    metric('전체 진행률', `${overall}%`),
+    metric('단계 수', data.stage_count),
+    metric('Updated(KST)', formatKstDateTime(data.updated_at || data.generated_at)),
+  ].join('');
+
+  const stages = data.stages || [];
+  if (!currentStage && data.latest_stage) currentStage = data.latest_stage.train_stage;
+  document.getElementById('stageList').innerHTML = stages.map(stage => {
+    const stagePct = pct(stage.stage_percent);
+    const overallPct = pct(stage.overall_percent);
+    const stageName = String(stage.train_stage || '');
+    const encodedStageName = encodeURIComponent(stageName);
+    return `<div class="stage" onclick="currentStage=decodeURIComponent('${encodedStageName}'); refreshHistory(); refreshLogs();">
+      <h3><span>${escapeHtml(stage.stage_index || '-')} / ${escapeHtml(stage.stage_count || '-')} · ${escapeHtml(stageName || 'stage')}</span>${badge(stage.status)}</h3>
+      <div class="bar"><div class="fill" style="width:${stagePct}%"></div></div>
+      ${metric('단계 진행률', `${stagePct}%`)}
+      ${metric('전체 반영 진행률', `${overallPct}%`)}
+      ${metric('Epoch', `${stage.epoch || 0}/${stage.epochs || '-'}`)}
+      ${metric('Step', `${stage.step || 0}/${stage.total_steps || '-'}`)}
+      ${metric('최근 loss', stage.last_loss)}
+      ${metric('검증 loss', stage.last_validation_loss)}
+      ${metric('best val loss', stage.best_val_loss)}
+      ${metric('경과 시간', formatSeconds(stage.elapsed_seconds))}
+      ${metric('예상 남은 시간', formatSeconds(stage.eta_seconds))}
+      ${metric('Finish time(KST)', formatKstEtaTarget(stage.eta_seconds))}
+      ${metric('samples/sec', formatNumber(stage.samples_per_second, 2))}
+      <p class="muted">${escapeHtml(stage.last_line || '')}</p>
+    </div>`;
+  }).join('') || '단계 진행 파일이 없습니다.';
+}
+
+async function refreshLogs() {
+  if (!currentRun) return;
+  let url = `/api/training/logs?run=${encodeURIComponent(currentRun)}&lines=240`;
+  if (currentStage) url += `&stage=${encodeURIComponent(currentStage)}`;
+  const res = await fetch(url);
+  const data = await res.json();
+  const box = document.getElementById('logBox');
+  box.textContent = data.error || data.text || '로그가 아직 없습니다.';
+  box.scrollTop = box.scrollHeight;
+}
+
+async function refreshArtifacts() {
+  if (!currentRun) {
+    renderArtifacts(null);
+    return;
+  }
+  const res = await fetch(`/api/training/artifacts?run=${encodeURIComponent(currentRun)}`);
+  const data = await res.json();
+  if (data.error) {
+    document.getElementById('trainingArtifactMessage').textContent = data.error;
+    return;
+  }
+  renderArtifacts(data);
+}
+
+async function refreshHistory() {
+  const summary = document.getElementById('historySummary');
+  const rows = document.getElementById('historyRows');
+  if (!currentRun) {
+    summary.textContent = '학습 run이 없어 히스토리를 표시할 수 없습니다.';
+    rows.innerHTML = '';
+    return;
+  }
+  let url = `/api/training/history?run=${encodeURIComponent(currentRun)}&limit=12`;
+  if (currentStage) url += `&stage=${encodeURIComponent(currentStage)}`;
+  const res = await fetch(url);
+  const data = await res.json();
+  if (data.error) {
+    summary.textContent = data.error;
+    rows.innerHTML = '';
+    return;
+  }
+  const latest = data.latest_point || {};
+  const latestProgress = data.latest_progress || {};
+  summary.textContent =
+    `${data.stage || '-'} · ${data.point_count || 0}개 최근 step` +
+    ` · 최신 ${latest.step || latestProgress.step || '-'} / ${latest.total_steps || latestProgress.total_steps || '-'}` +
+    ` / updated(KST) ${formatKstDateTime(latestProgress.updated_at || data.generated_at)}`;
+  rows.innerHTML = (data.points || []).slice().reverse().map(point => `<tr>
+    <td>${escapeHtml(point.step ?? '-')} / ${escapeHtml(point.total_steps ?? '-')}</td>
+    <td>${escapeHtml(Number(point.stage_percent || 0).toFixed(2))}%</td>
+    <td>${escapeHtml(Number(point.overall_percent || 0).toFixed(2))}%</td>
+    <td>${escapeHtml(point.learning_rate ?? '-')}</td>
+    <td>${escapeHtml(point.loss ?? '-')}</td>
+  </tr>`).join('');
+}
+
+async function refreshGpu() {
+  const res = await fetch('/api/training/gpu');
+  const data = await res.json();
+  const status = document.getElementById('gpuStatus');
+  const rows = document.getElementById('gpuRows');
+  const summary = document.getElementById('gpuSummaryMetrics');
+  if (!data.available) {
+    status.innerHTML = `<span class="warn">GPU 정보를 사용할 수 없습니다: ${escapeHtml(data.error || 'nvidia-smi 결과 없음')}</span>`;
+    summary.innerHTML = '';
+    rows.innerHTML = '';
+    return;
+  }
+  const totalPower = formatWatts(data.total_power_draw_watts);
+  const totalLimit = formatWatts(data.total_power_limit_watts);
+  const memoryText = `${formatPercent(data.total_memory_used_percent, 2)} · ${formatMib(data.total_memory_used_mib)} / ${formatMib(data.total_memory_total_mib)}`;
+  status.textContent =
+    `평균 Util ${formatPercent(data.average_utilization_gpu_percent, 1)} · VRAM ${memoryText} · ` +
+    `전력 ${totalPower === '-' ? '실측 불가' : totalPower} / 제한 ${totalLimit} · ${formatKstDateTime(data.generated_at)}`;
+  summary.innerHTML = [
+    metric('평균 GPU Util', formatPercent(data.average_utilization_gpu_percent, 1)),
+    metric('총 VRAM 사용률', memoryText),
+    metric('총 전력 실측', totalPower === '-' ? '실측 불가' : totalPower),
+    metric('전력 제한 합계', totalLimit),
+  ].join('');
+  rows.innerHTML = (data.gpus || []).map(gpu => `<tr>
+    <td>${escapeHtml(gpu.index)}: ${escapeHtml(gpu.name)}</td>
+    <td>${escapeHtml(formatPercent(gpu.utilization_gpu_percent, 1))}</td>
+    <td>${escapeHtml(formatPercent(gpu.memory_used_percent, 2))}</td>
+    <td>${escapeHtml(formatMib(gpu.memory_used_mib))} / ${escapeHtml(formatMib(gpu.memory_total_mib))}</td>
+    <td>${escapeHtml(gpu.power_draw_available ? formatWatts(gpu.power_draw_watts) : '실측 불가')}</td>
+    <td>${escapeHtml(formatWatts(gpu.power_limit_watts))}</td>
+    <td>${escapeHtml(formatNumber(gpu.temperature_c, 0))}℃</td>
+  </tr>`).join('');
+}
+
+async function refreshAll() {
+  if (refreshInFlight) return;
+  refreshInFlight = true;
+  clearAutoRefreshTimers();
+  try {
+    await refreshRuns();
+    await refreshStatus();
+    await refreshArtifacts();
+    await refreshHistory();
+    await refreshLogs();
+    await refreshGpu();
+    document.getElementById('lastRefreshAt').textContent = formatKstTime(new Date());
+  } catch (err) {
+    document.getElementById('stageList').innerHTML = `<span class="error">${escapeHtml(err)}</span>`;
+    latestRunStatus = 'unknown';
+  } finally {
+    refreshInFlight = false;
+    scheduleNextRefresh();
+  }
+}
+
+restoreAutoRefreshSettings();
+refreshAll();
+</script>
+</body>
+</html>

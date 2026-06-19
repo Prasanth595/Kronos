@@ -1,0 +1,827 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>STOM Kronos OHLCV Dashboard</title>
+  <script src="https://cdn.plot.ly/plotly-2.35.2.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/axios/dist/axios.min.js"></script>
+  <style>
+    body { margin: 0; font-family: "Segoe UI", "Malgun Gothic", sans-serif; background: #f1f5f9; color: #0f172a; }
+    header { background: linear-gradient(135deg, #0f172a, #2563eb); color: white; padding: 28px 40px; }
+    header h1 { margin: 0 0 8px 0; font-size: 30px; }
+    header p { margin: 0; opacity: .9; }
+    main { max-width: 1480px; margin: 0 auto; padding: 24px; }
+    .grid { display: grid; grid-template-columns: 360px 1fr; gap: 20px; align-items: start; }
+    .card { background: white; border-radius: 14px; padding: 20px; box-shadow: 0 8px 24px rgba(15, 23, 42, .08); margin-bottom: 18px; }
+    .card h2 { font-size: 20px; margin: 0 0 14px 0; border-bottom: 1px solid #e2e8f0; padding-bottom: 10px; }
+    .metric { display: grid; grid-template-columns: 1fr auto; gap: 12px; padding: 8px 0; border-bottom: 1px dashed #e2e8f0; }
+    .metric span:last-child { font-weight: 700; color: #1d4ed8; }
+    .steps li { margin-bottom: 10px; line-height: 1.45; }
+    select, input, button { width: 100%; padding: 11px; border-radius: 8px; border: 1px solid #cbd5e1; font-size: 14px; box-sizing: border-box; }
+    label { display: block; margin-top: 10px; margin-bottom: 4px; color: #475569; font-size: 13px; font-weight: 700; }
+    button { background: #2563eb; color: white; border: none; font-weight: 700; cursor: pointer; margin-top: 10px; }
+    button:hover { background: #1d4ed8; }
+    button.secondary { background: #0f766e; }
+    button.secondary:hover { background: #115e59; }
+    code, pre { background: #0f172a; color: #dbeafe; border-radius: 8px; }
+    pre { padding: 14px; overflow-x: auto; line-height: 1.5; }
+    table { width: 100%; border-collapse: collapse; }
+    th, td { padding: 8px 10px; border-bottom: 1px solid #e2e8f0; text-align: right; font-size: 13px; }
+    th:first-child, td:first-child, th:nth-child(2), td:nth-child(2) { text-align: left; }
+    .status { padding: 12px; border-radius: 8px; margin-bottom: 12px; }
+    .status.info { background: #dbeafe; color: #1e3a8a; }
+    .status.error { background: #fee2e2; color: #991b1b; }
+    .badge { display: inline-block; padding: 3px 8px; border-radius: 999px; font-weight: 700; font-size: 12px; }
+    .badge.buy { background: #dcfce7; color: #166534; }
+    .badge.watch { background: #fef9c3; color: #854d0e; }
+    .badge.avoid { background: #fee2e2; color: #991b1b; }
+    .muted { color: #64748b; font-size: 13px; line-height: 1.45; }
+    .nav { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 16px; }
+    .nav a { border: 1px solid rgba(255,255,255,.35); border-radius: 999px; padding: 7px 12px; text-decoration: none; background: rgba(15, 23, 42, .28); color: #dbeafe; font-weight: 800; }
+    .training-strip { display: grid; grid-template-columns: repeat(7, minmax(120px, 1fr)) auto; gap: 10px; align-items: center; background: #ecfdf5; border: 1px solid #bbf7d0; border-left: 5px solid #16a34a; border-radius: 14px; padding: 14px; margin-bottom: 18px; }
+    .training-strip.waiting { background: #fff7ed; border-color: #fed7aa; border-left-color: #f97316; }
+    .training-strip.training { background: #eff6ff; border-color: #bfdbfe; border-left-color: #2563eb; }
+    .training-strip.ready { background: #ecfdf5; border-color: #bbf7d0; border-left-color: #16a34a; }
+    .training-strip div { background: white; border-radius: 10px; padding: 9px; border: 1px solid #d1fae5; }
+    .training-readiness-note { grid-column: 1 / -1; color: #7c2d12; font-weight: 700; line-height: 1.45; }
+    .training-gate { grid-column: 1 / -1; display: grid; grid-template-columns: repeat(5, minmax(150px, 1fr)); gap: 10px; background: transparent !important; border: none !important; padding: 0 !important; }
+    .training-gate > div { border-color: #fed7aa; }
+    .training-strip.ready .training-gate > div { border-color: #bbf7d0; }
+    .training-gate .locked span { color: #b45309; }
+    .training-gate .ready span { color: #15803d; }
+    .training-strip strong { display: block; color: #475569; font-size: 12px; margin-bottom: 3px; }
+    .training-strip span { font-weight: 800; color: #0f172a; }
+    .training-strip a, .training-strip button { width: auto; margin: 0; text-decoration: none; border-radius: 8px; padding: 9px 12px; color: white; background: #2563eb; border: none; font-weight: 700; cursor: pointer; }
+    .training-strip input { width: 76px; padding: 8px; }
+    #chart { min-height: 540px; }
+    @media (max-width: 980px) { .training-strip { grid-template-columns: 1fr; } }
+  </style>
+</head>
+<body>
+<header>
+  <h1>STOM Tick DB → Kronos OHLCV 학습/검증 대시보드</h1>
+  <p>전체 주식 테이블 OHLCV 준비, 파일럿 학습, 실제값 vs 예측값 검증을 한 화면에서 추적합니다.</p>
+  <div class="nav">
+    <a href="/">Kronos 예측 UI</a>
+    <a href="/stom">STOM 예측/성과 대시보드</a>
+    <a href="/training">실시간 학습 모니터</a>
+  </div>
+</header>
+<main>
+  <div
+    id="stomTrainingStrip"
+    class="training-strip waiting"
+    data-default-refresh-seconds="{{ default_training_refresh_seconds }}"
+  >
+    <div><strong>학습 Status</strong><span id="stomTrainingStatus">불러오는 중</span></div>
+    <div><strong>Stage</strong><span id="stomTrainingStage">-</span></div>
+    <div><strong>Step</strong><span id="stomTrainingStep">-</span></div>
+    <div><strong>Progress</strong><span id="stomTrainingProgress">-</span></div>
+    <div><strong>성과 상태</strong><span id="stomTrainingReadiness">성과 대기</span></div>
+    <div><strong>Updated(KST)</strong><span id="stomTrainingUpdated">-</span></div>
+    <div><strong>Finish(KST)</strong><span id="stomTrainingFinish">-</span></div>
+    <div>
+      <a href="/training">학습 대시보드</a>
+      <button type="button" onclick="refreshStomTrainingStatus()">새로고침</button>
+      <label for="stomTrainingRefreshSeconds">초</label>
+      <input id="stomTrainingRefreshSeconds" type="number" min="2" max="3600" value="{{ default_training_refresh_seconds }}" onchange="restartStomTrainingAutoRefresh()">
+    </div>
+    <div id="stomTrainingGate" class="training-gate">
+      <div class="locked"><strong>성과 사용 Gate</strong><span id="stomPerformanceGate">predictor 완료 전 대기</span></div>
+      <div><strong>Predictor</strong><span id="stomPredictorGate">미시작</span></div>
+      <div><strong>Checkpoint</strong><span id="stomCheckpointGate">확인 중</span></div>
+      <div><strong>속도 / ETA</strong><span id="stomRuntimeGate">-</span></div>
+      <div><strong>Time zone</strong><span id="stomKstGate">Asia/Seoul / KST</span></div>
+    </div>
+    <div id="stomTrainingReadinessNote" class="training-readiness-note">checkpoint와 predictor 상태를 확인하는 중입니다.</div>
+    <div id="stomTrainingArtifacts" class="training-readiness-note">checkpoint/model artifact 상태를 확인하는 중입니다.</div>
+  </div>
+  <div id="status" class="status info">대시보드 데이터를 불러오는 중입니다...</div>
+  <div class="grid">
+    <section>
+      <div class="card">
+        <h2>Page 1. 목표/상태</h2>
+        <div id="summary"></div>
+      </div>
+      <div class="card">
+        <h2>Page 2~5 진행 계획</h2>
+        <ol class="steps">
+          <li><b>환경 점검:</b> CUDA/PyTorch/Flask/모델 경로 확인</li>
+          <li><b>데이터 준비:</b> STOM DB를 grouped OHLCV CSV로 변환</li>
+          <li><b>파일럿 학습:</b> 100~300개 종목, max_samples로 smoke 학습</li>
+          <li><b>예측 검증:</b> holdout window의 실제값/예측값 CSV 생성</li>
+          <li><b>대시보드:</b> 예측 파일을 선택해 chart/metrics/top-k 확인</li>
+        </ol>
+      </div>
+      <div class="card">
+        <h2>바로 실행 명령</h2>
+        <pre>python finetune_csv/stom_ohlcv_pipeline.py env-check
+python finetune_csv/prepare_stom_1tick.py export --db _database/stock_tick_back.db --output finetune_csv/data/stom_1tick_kline_pilot.csv --lookback-window 300 --predict-window 60 --max-tables 100 --price-mode close_only
+python finetune_csv/stom_prediction_eval.py --data finetune_csv/data/stom_1tick_kline_pilot.csv --output webui/stom_predictions/pilot_predictions.csv --lookback-window 300 --predict-window 60 --max-windows 20 --mode baseline</pre>
+      </div>
+      <div class="card">
+        <h2>예측 파일 선택</h2>
+        <select id="fileSelect"></select>
+        <select id="windowSelect"></select>
+        <button onclick="loadPrediction()">실제값/예측값 표시</button>
+        <label for="diagnosticsMaxSymbols">Diagnostics symbols</label>
+        <input id="diagnosticsMaxSymbols" type="number" min="5" max="500" value="50">
+        <label for="diagnosticsMinWindows">Min windows per symbol</label>
+        <input id="diagnosticsMinWindows" type="number" min="1" value="1">
+        <button class="secondary" onclick="loadDiagnostics()">전체/종목별 통계 표시</button>
+      </div>
+      <div class="card">
+        <h2>Qlib Top-K 백테스트</h2>
+        <p class="muted">`finetune/qlib_stom_pipeline.py score-backtest`가 만든 JSON artifact를 표시합니다.</p>
+        <select id="qlibBacktestSelect"></select>
+        <button class="secondary" onclick="loadQlibBacktest()">Qlib 백테스트 표시</button>
+      </div>
+      <div class="card">
+        <h2>Rolling Filter Validation</h2>
+        <p class="muted">Displays filter-search and rolling train/test validation JSON artifacts for overfit checks before live approval.</p>
+        <select id="filterReportSelect"></select>
+        <button class="secondary" onclick="loadFilterReport()">Show filter validation</button>
+      </div>
+      <div class="card">
+        <h2>Kronos Score Export</h2>
+        <p class="muted">Exports the selected prediction file to CSV/JSON for internal review only. external trading-program integration is intentionally de-scoped; diagnostic_* fields are backtest-only and must not be used as live filters.</p>
+        <label for="exportFilter">Score filter</label>
+        <select id="exportFilter" onchange="refreshExportPreview()">
+          <option value="buy_candidate_score60">buy_candidate_score60</option>
+          <option value="score65_consistency80">score65_consistency80</option>
+          <option value="score70_pred_return_0_5">score70_pred_return_0_5</option>
+          <option value="stable_positive_filter">stable_positive_filter</option>
+          <option value="early_session_score60">early_session_score60</option>
+          <option value="all_scored">all_scored</option>
+        </select>
+        <label for="exportLimit">Export limit</label>
+        <input id="exportLimit" type="number" min="1" value="20" onchange="refreshExportPreview()">
+        <label for="exportMinScore">Min score optional</label>
+        <input id="exportMinScore" type="number" min="0" max="100" step="0.1" placeholder="e.g. 60" onchange="refreshExportPreview()">
+        <button onclick="downloadExport('csv')">Download CSV</button>
+        <button class="secondary" onclick="downloadExport('json')">Open JSON</button>
+        <pre id="exportPreview">Select a prediction file to show an export preview.</pre>
+      </div>
+    </section>
+    <section>
+      <div class="card">
+        <h2>Page 5. 실제값 vs 예측값</h2>
+        <div id="metrics"></div>
+        <div id="chart"></div>
+      </div>
+      <div class="card">
+        <h2>Model Diagnostics: 전체/종목별 통계</h2>
+        <p class="muted">선택한 예측 CSV 기준으로 전체 오차, 종목별 성과, 상/하위 종목을 확인합니다.</p>
+        <div id="diagnosticsMetrics">진단 버튼을 누르면 표시됩니다.</div>
+        <div id="diagnosticsErrorChart"></div>
+        <div id="diagnosticsScatterChart"></div>
+        <div id="diagnosticsHeatmapChart"></div>
+        <h3>종목별 요약</h3>
+        <table>
+          <thead>
+            <tr><th>Symbol</th><th>Windows</th><th>MAPE %</th><th>MAE</th><th>RMSE</th><th>Dir %</th><th>Pred %</th><th>Actual %</th><th>Gap %p</th></tr>
+          </thead>
+          <tbody id="diagnosticsSymbolRows"></tbody>
+        </table>
+        <h3>Best symbols</h3>
+        <table>
+          <thead>
+            <tr><th>Symbol</th><th>Windows</th><th>MAPE %</th><th>Dir %</th><th>Actual %</th><th>Gap %p</th></tr>
+          </thead>
+          <tbody id="diagnosticsBestRows"></tbody>
+        </table>
+        <h3>Worst symbols</h3>
+        <table>
+          <thead>
+            <tr><th>Symbol</th><th>Windows</th><th>MAPE %</th><th>Dir %</th><th>Actual %</th><th>Gap %p</th></tr>
+          </thead>
+          <tbody id="diagnosticsWorstRows"></tbody>
+        </table>
+      </div>
+      <div class="card">
+        <h2>Top-K 예상등락률 검증</h2>
+        <table>
+          <thead>
+            <tr><th>Window</th><th>Symbol</th><th>Pred %</th><th>Actual %</th><th>Hit</th></tr>
+          </thead>
+          <tbody id="topk"></tbody>
+        </table>
+      </div>
+      <div class="card">
+        <h2>Kronos Score Top-K 추천</h2>
+        <p class="muted">Score는 예측 등락률, 예측 경로 일관성, 예측 경로 변동성으로 계산합니다. 실제 수익률/Hit는 백테스트 확인용이며 live score에는 넣지 않습니다.</p>
+        <div id="scoreSummary"></div>
+        <table>
+          <thead>
+            <tr><th>Rank</th><th>Symbol</th><th>Score</th><th>Signal</th><th>Pred %</th><th>Consistency</th><th>Actual %</th><th>Hit</th></tr>
+          </thead>
+          <tbody id="recommendations"></tbody>
+        </table>
+      </div>
+      <div class="card">
+        <h2>조건식 필터 백테스트 리포트</h2>
+        <p class="muted">Score 조건식별 평균 실제 등락률, 방향 Hit, 승률을 비교합니다. 이 결과는 검증용이며 수수료/슬리피지는 아직 반영하지 않았습니다.</p>
+        <h3>조건식 필터별 성과</h3>
+        <table>
+          <thead>
+            <tr><th>Filter</th><th>Count</th><th>Avg Score</th><th>Pred %</th><th>Actual %</th><th>Hit</th><th>Win</th><th>PF</th></tr>
+          </thead>
+          <tbody id="filterBacktest"></tbody>
+        </table>
+        <h3>Score 구간별 성과</h3>
+        <table>
+          <thead>
+            <tr><th>Band</th><th>Count</th><th>Avg Score</th><th>Actual %</th><th>Hit</th><th>Win</th></tr>
+          </thead>
+          <tbody id="scoreBandBacktest"></tbody>
+        </table>
+        <h3>종목/시간대 상위 성과</h3>
+        <table>
+          <thead>
+            <tr><th>Segment</th><th>Count</th><th>Avg Score</th><th>Actual %</th><th>Hit</th><th>Win</th></tr>
+          </thead>
+          <tbody id="segmentBacktest"></tbody>
+        </table>
+      </div>
+      <div class="card">
+        <h2>Qlib-style Top-K 백테스트 결과</h2>
+        <p class="muted">예측 score를 리밸런싱 시각별 Top-K로 선택해 비용/슬리피지를 차감한 연구용 결과입니다.</p>
+        <div id="qlibBacktestMetrics">Qlib backtest artifact를 선택하면 표시됩니다.</div>
+        <div id="qlibBacktestChart"></div>
+        <table>
+          <thead>
+            <tr><th>Time</th><th>Rank</th><th>Symbol</th><th>Score</th><th>Actual %</th><th>Net %</th></tr>
+          </thead>
+          <tbody id="qlibTopTrades"></tbody>
+        </table>
+      </div>
+      <div class="card">
+        <h2>Filter Overfit Validation Result</h2>
+        <p class="muted">Rolling validation chooses the best filter on earlier periods, applies it to later periods, and compares test net versus baseline.</p>
+        <div id="filterReportMetrics">Select a filter validation artifact to display the result.</div>
+        <table>
+          <thead>
+            <tr><th>Fold/Rank</th><th>Filter</th><th>Train Net %</th><th>Test Net %</th><th>Baseline %</th><th>Improve %p</th><th>Trades</th></tr>
+          </thead>
+          <tbody id="filterReportRows"></tbody>
+        </table>
+      </div>
+    </section>
+  </div>
+</main>
+<script>
+const statusEl = document.getElementById('status');
+const fileSelect = document.getElementById('fileSelect');
+const windowSelect = document.getElementById('windowSelect');
+const qlibBacktestSelect = document.getElementById('qlibBacktestSelect');
+const filterReportSelect = document.getElementById('filterReportSelect');
+let stomTrainingTimer = null;
+const KST_TIME_ZONE = 'Asia/Seoul';
+const KST_LOCALE = 'ko-KR';
+const KST_DATE_TIME_FORMAT = {
+  timeZone: KST_TIME_ZONE,
+  year: 'numeric',
+  month: '2-digit',
+  day: '2-digit',
+  hour: '2-digit',
+  minute: '2-digit',
+  second: '2-digit',
+  hour12: false,
+};
+
+function fmt(value, digits = 4) {
+  if (value === null || value === undefined || Number.isNaN(value)) return '-';
+  if (typeof value === 'number') return value.toLocaleString(undefined, { maximumFractionDigits: digits });
+  return value;
+}
+
+function escapeHtml(value) {
+  return String(value ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
+function setStatus(message, kind = 'info') {
+  statusEl.textContent = message;
+  statusEl.className = `status ${kind}`;
+}
+
+function stomTrainingSeconds() {
+  const input = document.getElementById('stomTrainingRefreshSeconds');
+  const fallback = Number(document.getElementById('stomTrainingStrip').dataset.defaultRefreshSeconds || 5);
+  const value = Math.floor(Number(input.value || fallback));
+  const seconds = Math.max(2, Math.min(3600, Number.isFinite(value) ? value : fallback));
+  input.value = seconds;
+  return seconds;
+}
+
+function formatTrainingSeconds(value) {
+  if (value === null || value === undefined || Number.isNaN(Number(value))) return '-';
+  let seconds = Math.max(0, Math.floor(Number(value)));
+  const days = Math.floor(seconds / 86400); seconds %= 86400;
+  const hours = Math.floor(seconds / 3600); seconds %= 3600;
+  const minutes = Math.floor(seconds / 60);
+  const parts = [];
+  if (days) parts.push(`${days}일`);
+  if (hours || days) parts.push(`${hours}시간`);
+  if (minutes || hours || days) parts.push(`${minutes}분`);
+  return parts.length ? parts.join(' ') : `${Math.floor(Number(value))}초`;
+}
+
+function parseDateValue(value) {
+  if (!value) return null;
+  const date = value instanceof Date ? value : new Date(value);
+  return Number.isNaN(date.getTime()) ? null : date;
+}
+
+function formatKstDateTime(value) {
+  const date = parseDateValue(value);
+  if (!date) return '-';
+  return `${date.toLocaleString(KST_LOCALE, KST_DATE_TIME_FORMAT)} KST`;
+}
+
+function formatKstEtaTarget(seconds) {
+  if (seconds === null || seconds === undefined || Number.isNaN(Number(seconds))) return '-';
+  return formatKstDateTime(new Date(Date.now() + Math.max(0, Number(seconds)) * 1000));
+}
+
+function setGateState(elementId, text, isReady) {
+  const element = document.getElementById(elementId);
+  element.textContent = text;
+  const box = element.closest('div');
+  if (box) {
+    box.classList.toggle('ready', Boolean(isReady));
+    box.classList.toggle('locked', !isReady);
+  }
+}
+
+async function refreshStomTrainingStatus() {
+  try {
+    const res = await axios.get('/api/training/status');
+    const data = res.data;
+    const stage = data.latest_stage || {};
+    const readiness = data.readiness || {};
+    const stagePercent = Number(stage.stage_percent || 0).toFixed(2);
+    const samplesPerSecond = stage.samples_per_second ? Number(stage.samples_per_second).toFixed(2) : '-';
+    const etaText = formatTrainingSeconds(stage.eta_seconds);
+    const finishText = formatKstEtaTarget(stage.eta_seconds);
+    const strip = document.getElementById('stomTrainingStrip');
+    const readinessLevel = ['ready', 'training', 'waiting'].includes(readiness.level) ? readiness.level : 'waiting';
+    strip.classList.remove('ready', 'training', 'waiting');
+    strip.classList.add(readinessLevel);
+    document.getElementById('stomTrainingStatus').textContent = data.status || 'unknown';
+    document.getElementById('stomTrainingStage').textContent = stage.train_stage || '-';
+    document.getElementById('stomTrainingStep').textContent = `${stage.step || 0}/${stage.total_steps || '-'}`;
+    document.getElementById('stomTrainingProgress').textContent = `${Number(data.overall_percent || 0).toFixed(2)}%`;
+    document.getElementById('stomTrainingReadiness').textContent = readiness.label || '성과 대기';
+    setGateState(
+      'stomPerformanceGate',
+      readiness.performance_ready ? '성과 사용 가능' : 'LOCKED: predictor/checkpoint 완료 전 성과 판단 금지',
+      readiness.performance_ready
+    );
+    setGateState(
+      'stomPredictorGate',
+      readiness.predictor_complete ? '완료' : readiness.predictor_started ? '학습 중' : '미시작',
+      readiness.predictor_complete
+    );
+    document.getElementById('stomRuntimeGate').textContent =
+      `${samplesPerSecond} samples/sec · ETA ${etaText} · stage ${stagePercent}%`;
+    document.getElementById('stomTrainingFinish').textContent = finishText;
+    document.getElementById('stomTrainingReadinessNote').textContent =
+      readiness.message || 'checkpoint와 predictor 완료 전까지 예측 성과는 대기 상태입니다.';
+    document.getElementById('stomTrainingUpdated').textContent = formatKstDateTime(stage.updated_at || data.updated_at || data.generated_at);
+    await refreshStomTrainingArtifacts();
+    return data.status || 'unknown';
+  } catch (err) {
+    document.getElementById('stomTrainingStatus').textContent = 'error';
+    document.getElementById('stomTrainingUpdated').textContent = err.response?.data?.error || err.message;
+    document.getElementById('stomTrainingFinish').textContent = '-';
+    return 'unknown';
+  }
+}
+
+async function refreshStomTrainingArtifacts() {
+  try {
+    const res = await axios.get('/api/training/artifacts');
+    const artifacts = res.data;
+    const tokenizer = (artifacts.stages || {}).tokenizer || {};
+    const predictor = (artifacts.stages || {}).predictor || {};
+    const predictorReady = Boolean(predictor.checkpoint_ready);
+    const tokenizerReady = Boolean(tokenizer.checkpoint_ready);
+    const checkpointText =
+      `tokenizer ${tokenizerReady ? '준비' : '대기'}(${tokenizer.checkpoint_file_count || 0})` +
+      ` · predictor ${predictorReady ? '준비' : '대기'}(${predictor.checkpoint_file_count || 0})`;
+    setGateState('stomCheckpointGate', checkpointText, predictorReady);
+    document.getElementById('stomTrainingArtifacts').textContent =
+      `${artifacts.label || 'checkpoint 대기'} · model weight ${artifacts.model_weight_file_count || 0}개` +
+      ` · tokenizer checkpoint ${tokenizer.checkpoint_file_count || 0}개` +
+      ` · predictor checkpoint ${predictor.checkpoint_file_count || 0}개` +
+      ` · predictor started ${artifacts.predictor_started ? '예' : '아니오'}`;
+  } catch (err) {
+    document.getElementById('stomTrainingArtifacts').textContent =
+      `artifact 상태 확인 실패: ${err.response?.data?.error || err.message}`;
+  }
+}
+
+async function restartStomTrainingAutoRefresh() {
+  if (stomTrainingTimer) clearTimeout(stomTrainingTimer);
+  const status = await refreshStomTrainingStatus();
+  if (status === 'running' || status === 'unknown') {
+    stomTrainingTimer = setTimeout(restartStomTrainingAutoRefresh, stomTrainingSeconds() * 1000);
+  }
+}
+
+async function loadSummary() {
+  const res = await axios.get('/api/stom/summary');
+  const s = res.data;
+  document.getElementById('summary').innerHTML = `
+    <div class="metric"><span>전체 테이블</span><span>${fmt(s.table_count, 0)}</span></div>
+    <div class="metric"><span>주식 테이블</span><span>${fmt(s.compatible_stock_table_count, 0)}</span></div>
+    <div class="metric"><span>학습 가능 그룹</span><span>${fmt(s.eligible_group_count, 0)}</span></div>
+    <div class="metric"><span>예상 window</span><span>${fmt(s.estimated_samples, 0)}</span></div>
+    <div class="metric"><span>제외 테이블</span><span>${(s.excluded_tables || []).join(', ')}</span></div>
+  `;
+}
+
+async function loadFiles() {
+  const res = await axios.get('/api/stom/prediction-files');
+  fileSelect.innerHTML = '';
+  if (!res.data.files || res.data.files.length === 0) {
+    const opt = document.createElement('option');
+    opt.textContent = '예측 파일 없음 - stom_prediction_eval.py를 먼저 실행하세요';
+    opt.value = '';
+    fileSelect.appendChild(opt);
+    return;
+  }
+  res.data.files.forEach(file => {
+    const opt = document.createElement('option');
+    opt.value = file.name;
+    opt.textContent = `${file.name} (${fmt(file.size_bytes, 0)} bytes)`;
+    fileSelect.appendChild(opt);
+  });
+}
+
+async function loadQlibBacktests() {
+  const res = await axios.get('/api/stom/qlib-backtests');
+  qlibBacktestSelect.innerHTML = '';
+  if (!res.data.files || res.data.files.length === 0) {
+    const opt = document.createElement('option');
+    opt.textContent = 'Qlib 백테스트 artifact 없음';
+    opt.value = '';
+    qlibBacktestSelect.appendChild(opt);
+    return;
+  }
+  res.data.files.forEach(file => {
+    const opt = document.createElement('option');
+    opt.value = file.name;
+    opt.textContent = `${file.name} (${fmt(file.size_bytes, 0)} bytes)`;
+    qlibBacktestSelect.appendChild(opt);
+  });
+}
+
+async function loadFilterReports() {
+  const res = await axios.get('/api/stom/filter-reports');
+  filterReportSelect.innerHTML = '';
+  if (!res.data.files || res.data.files.length === 0) {
+    const opt = document.createElement('option');
+    opt.textContent = 'No filter validation artifact';
+    opt.value = '';
+    filterReportSelect.appendChild(opt);
+    return;
+  }
+  res.data.files.forEach(file => {
+    const opt = document.createElement('option');
+    opt.value = file.name;
+    opt.textContent = `${file.name} [${file.artifact_type}]`;
+    filterReportSelect.appendChild(opt);
+  });
+}
+
+async function loadFilterReport() {
+  if (!filterReportSelect.value) {
+    document.getElementById('filterReportMetrics').textContent = 'No filter validation artifact.';
+    return;
+  }
+  const res = await axios.get('/api/stom/filter-reports', { params: { file: filterReportSelect.value } });
+  const payload = res.data.artifact || {};
+  if (payload.artifact_type === 'cost_sensitivity_gate') {
+    const s = payload.target_cost_summary || {};
+    const allowed = payload.expand_training_allowed ? 'ALLOW' : 'HOLD';
+    document.getElementById('filterReportMetrics').innerHTML = `
+      <div class="metric"><span>Artifact</span><span>${payload.source_file}</span></div>
+      <div class="metric"><span>Decision / Target cost</span><span>${allowed} / ${fmt(payload.target_total_cost_bps, 0)}bp</span></div>
+      <div class="metric"><span>Target Avg Test Net</span><span>${fmt(s.avg_test_net_return_pct, 4)}%</span></div>
+      <div class="metric"><span>Positive Fold / Trades</span><span>${fmt((s.positive_test_fold_rate || 0) * 100, 2)}% / ${fmt(s.total_test_trade_count, 0)}</span></div>
+      <div class="metric"><span>Reason</span><span>${payload.decision_reason || '-'}</span></div>
+    `;
+    document.getElementById('filterReportRows').innerHTML = (payload.rolling_cost_sensitivity || []).map(row => `
+      <tr>
+        <td>${fmt(row.total_cost_bps, 0)}bp</td>
+        <td>${row.passes_gate ? 'PASS' : 'FAIL'}</td>
+        <td>${fmt(row.avg_train_net_return_pct, 4)}</td>
+        <td>${fmt(row.avg_test_net_return_pct, 4)}</td>
+        <td>${fmt(row.avg_test_baseline_net_return_pct, 4)}</td>
+        <td>${fmt(row.avg_test_improvement_net_pct, 4)}</td>
+        <td>${fmt(row.total_test_trade_count, 0)}</td>
+      </tr>
+    `).join('');
+    return;
+  }
+  if (payload.artifact_type === 'rolling_filter_validation') {
+    const s = payload.summary || {};
+    document.getElementById('filterReportMetrics').innerHTML = `
+      <div class="metric"><span>Artifact</span><span>${payload.source_file}</span></div>
+      <div class="metric"><span>Folds / Periods / Trades</span><span>${fmt(s.fold_count, 0)} / ${fmt(s.total_period_count, 0)} / ${fmt(s.total_test_trade_count, 0)}</span></div>
+      <div class="metric"><span>Avg Train / Test Net</span><span>${fmt(s.avg_train_net_return_pct, 4)}% / ${fmt(s.avg_test_net_return_pct, 4)}%</span></div>
+      <div class="metric"><span>Baseline / Improvement</span><span>${fmt(s.avg_test_baseline_net_return_pct, 4)}% / ${fmt(s.avg_test_improvement_net_pct, 4)}%p</span></div>
+      <div class="metric"><span>Overfit Gap / Profitable</span><span>${fmt(s.overfit_gap_pct, 4)}%p / ${s.is_profitable_after_cost ? 'YES' : 'NO'}</span></div>
+    `;
+    document.getElementById('filterReportRows').innerHTML = (payload.folds || []).map(row => `
+      <tr>
+        <td>${row.fold}</td>
+        <td>${row.selected_filter}</td>
+        <td>${fmt(row.train_avg_net_return_pct, 4)}</td>
+        <td>${fmt(row.test_avg_net_return_pct, 4)}</td>
+        <td>${fmt(row.baseline_test_avg_net_return_pct, 4)}</td>
+        <td>${fmt(row.test_vs_baseline_net_pct, 4)}</td>
+        <td>${fmt(row.test_trade_count, 0)}</td>
+      </tr>
+    `).join('');
+    return;
+  }
+  const b = payload.best_filter || {};
+  const base = payload.baseline_topk || {};
+  document.getElementById('filterReportMetrics').innerHTML = `
+    <div class="metric"><span>Artifact</span><span>${payload.source_file}</span></div>
+    <div class="metric"><span>Best Filter</span><span>${b.filter_name || '-'}</span></div>
+    <div class="metric"><span>Best Net / Baseline Net</span><span>${fmt(b.avg_net_return_pct, 4)}% / ${fmt(base.avg_net_return_pct, 4)}%</span></div>
+    <div class="metric"><span>Improvement / Coverage</span><span>${fmt(payload.improvement_vs_baseline_net_pct, 4)}%p / ${fmt((b.coverage || 0) * 100, 2)}%</span></div>
+  `;
+  document.getElementById('filterReportRows').innerHTML = (payload.top_filters || []).slice(0, 20).map((row, idx) => `
+    <tr>
+      <td>${idx + 1}</td>
+      <td>${row.filter_name}</td>
+      <td>-</td>
+      <td>${fmt(row.avg_net_return_pct, 4)}</td>
+      <td>${fmt(base.avg_net_return_pct, 4)}</td>
+      <td>${fmt(row.avg_net_return_pct - base.avg_net_return_pct, 4)}</td>
+      <td>${fmt(row.trade_count, 0)}</td>
+    </tr>
+  `).join('');
+}
+
+async function loadQlibBacktest() {
+  if (!qlibBacktestSelect.value) {
+    document.getElementById('qlibBacktestMetrics').textContent = 'Qlib 백테스트 artifact가 없습니다.';
+    return;
+  }
+  const res = await axios.get('/api/stom/qlib-backtests', { params: { file: qlibBacktestSelect.value } });
+  const payload = res.data.artifact || {};
+  const m = payload.metrics || {};
+  document.getElementById('qlibBacktestMetrics').innerHTML = `
+    <div class="metric"><span>Periods / Trades / Top-K</span><span>${fmt(m.period_count, 0)} / ${fmt(m.trade_count, 0)} / ${fmt(m.top_k, 0)}</span></div>
+    <div class="metric"><span>Avg trades / period</span><span>${fmt(m.avg_trades_per_period, 2)}</span></div>
+    <div class="metric"><span>Avg Gross / Net</span><span>${fmt(m.avg_gross_return_pct, 4)}% / ${fmt(m.avg_net_return_pct, 4)}%</span></div>
+    <div class="metric"><span>Cumulative / MDD</span><span>${fmt(m.cumulative_return_pct, 4)}% / ${fmt(m.max_drawdown_pct, 4)}%</span></div>
+    <div class="metric"><span>Hit / Direction / Sharpe</span><span>${fmt((m.hit_rate || 0) * 100, 2)}% / ${fmt((m.direction_hit_rate || 0) * 100, 2)}% / ${fmt(m.sharpe_per_period, 4)}</span></div>
+    ${(payload.warnings || []).map(w => `<div class="status error">${w}</div>`).join('')}
+  `;
+  const chart = JSON.parse(res.data.chart);
+  Plotly.newPlot('qlibBacktestChart', chart.data, chart.layout, {responsive: true});
+  document.getElementById('qlibTopTrades').innerHTML = (payload.top_trades || []).slice(0, 20).map(row => `
+    <tr>
+      <td>${row.asof_timestamp}</td>
+      <td>${row.rank}</td>
+      <td>${row.symbol}</td>
+      <td>${fmt(row.score, 4)}</td>
+      <td>${fmt(row.actual_return_pct, 4)}</td>
+      <td>${fmt(row.net_return_pct, 4)}</td>
+    </tr>
+  `).join('');
+}
+
+
+function renderDiagnosticsRows(rows, targetId, mode = 'summary') {
+  const target = document.getElementById(targetId);
+  if (!target) return;
+  target.innerHTML = (rows || []).map(row => {
+    if (mode === 'compact') {
+      return `
+        <tr>
+          <td>${escapeHtml(row.symbol)}</td>
+          <td>${fmt(row.windows, 0)}</td>
+          <td>${fmt(row.mape, 4)}</td>
+          <td>${fmt((row.direction_accuracy || 0) * 100, 2)}%</td>
+          <td>${fmt(row.avg_actual_return, 4)}</td>
+          <td>${fmt(row.avg_abs_return_gap, 4)}</td>
+        </tr>
+      `;
+    }
+    return `
+      <tr>
+        <td>${escapeHtml(row.symbol)}</td>
+        <td>${fmt(row.windows, 0)}</td>
+        <td>${fmt(row.mape, 4)}</td>
+        <td>${fmt(row.mae, 4)}</td>
+        <td>${fmt(row.rmse, 4)}</td>
+        <td>${fmt((row.direction_accuracy || 0) * 100, 2)}%</td>
+        <td>${fmt(row.avg_pred_return, 4)}</td>
+        <td>${fmt(row.avg_actual_return, 4)}</td>
+        <td>${fmt(row.avg_abs_return_gap, 4)}</td>
+      </tr>
+    `;
+  }).join('');
+}
+
+async function loadDiagnostics() {
+  if (!fileSelect.value) {
+    setStatus('진단할 예측 CSV를 먼저 선택하세요.', 'error');
+    return;
+  }
+  setStatus('전체/종목별 통계를 불러오는 중입니다...', 'info');
+  const params = {
+    file: fileSelect.value,
+    max_symbols: document.getElementById('diagnosticsMaxSymbols').value || 50,
+    min_windows: document.getElementById('diagnosticsMinWindows').value || 1,
+  };
+  const res = await axios.get('/api/stom/diagnostics', { params });
+  const data = res.data;
+  const m = data.overall || {};
+  document.getElementById('diagnosticsMetrics').innerHTML = `
+    <div class="metric"><span>Rows / Windows / Symbols</span><span>${fmt(m.rows, 0)} / ${fmt(m.windows, 0)} / ${fmt(m.symbols, 0)}</span></div>
+    <div class="metric"><span>Sessions / Periods</span><span>${fmt(m.sessions, 0)} / ${fmt(m.periods, 0)}</span></div>
+    <div class="metric"><span>MAE / RMSE / MAPE</span><span>${fmt(m.mae, 4)} / ${fmt(m.rmse, 4)} / ${fmt(m.mape, 4)}%</span></div>
+    <div class="metric"><span>Direction / Avg pred / Avg actual</span><span>${fmt((m.direction_accuracy || 0) * 100, 2)}% / ${fmt(m.avg_pred_return, 4)}% / ${fmt(m.avg_actual_return, 4)}%</span></div>
+    <div class="metric"><span>Symbol metric count</span><span>${fmt(m.symbol_metric_count, 0)}</span></div>
+  `;
+  Plotly.newPlot('diagnosticsErrorChart', JSON.parse(data.charts.error_distribution).data, JSON.parse(data.charts.error_distribution).layout, {responsive: true});
+  Plotly.newPlot('diagnosticsScatterChart', JSON.parse(data.charts.return_scatter).data, JSON.parse(data.charts.return_scatter).layout, {responsive: true});
+  Plotly.newPlot('diagnosticsHeatmapChart', JSON.parse(data.charts.symbol_heatmap).data, JSON.parse(data.charts.symbol_heatmap).layout, {responsive: true});
+  renderDiagnosticsRows(data.symbol_summary, 'diagnosticsSymbolRows');
+  renderDiagnosticsRows(data.best_symbols, 'diagnosticsBestRows', 'compact');
+  renderDiagnosticsRows(data.worst_symbols, 'diagnosticsWorstRows', 'compact');
+  setStatus('전체/종목별 통계 표시 완료', 'ok');
+}
+
+async function loadPrediction() {
+  if (!fileSelect.value) {
+    setStatus('예측 파일이 없습니다. 먼저 예측 검증 CSV를 생성하세요.', 'error');
+    return;
+  }
+  const params = { file: fileSelect.value };
+  if (windowSelect.value) params.window_id = windowSelect.value;
+  const res = await axios.get('/api/stom/prediction', { params });
+  const data = res.data;
+  const m = data.metrics;
+  document.getElementById('metrics').innerHTML = `
+    <div class="metric"><span>Rows / Windows / Symbols</span><span>${fmt(m.rows, 0)} / ${fmt(m.windows, 0)} / ${fmt(m.symbols, 0)}</span></div>
+    <div class="metric"><span>MAE / RMSE / MAPE</span><span>${fmt(m.mae)} / ${fmt(m.rmse)} / ${fmt(m.mape)}%</span></div>
+    <div class="metric"><span>방향 정확도</span><span>${fmt(m.direction_accuracy * 100, 2)}%</span></div>
+    <div class="metric"><span>평균 예측/실제 등락률</span><span>${fmt(m.avg_pred_return, 4)}% / ${fmt(m.avg_actual_return, 4)}%</span></div>
+  `;
+  const chart = JSON.parse(data.chart);
+  Plotly.newPlot('chart', chart.data, chart.layout, {responsive: true});
+  windowSelect.innerHTML = '';
+  data.windows.forEach(w => {
+    const opt = document.createElement('option');
+    opt.value = w;
+    opt.textContent = `window ${w}`;
+    windowSelect.appendChild(opt);
+  });
+  document.getElementById('topk').innerHTML = data.topk.map(row => `
+    <tr>
+      <td>${row.window_id}</td>
+      <td>${row.symbol}</td>
+      <td>${fmt(row.pred_return_window, 4)}</td>
+      <td>${fmt(row.actual_return_window, 4)}</td>
+      <td>${row.direction_hit_window ? 'Y' : 'N'}</td>
+    </tr>
+  `).join('');
+  const s = data.recommendation_summary || {};
+  document.getElementById('scoreSummary').innerHTML = `
+    <div class="metric"><span>추천 수 / 매수 후보</span><span>${fmt(s.count, 0)} / ${fmt(s.buy_candidates, 0)}</span></div>
+    <div class="metric"><span>평균 Score / Top Score</span><span>${fmt(s.avg_score, 2)} / ${fmt(s.top_score, 2)}</span></div>
+    <div class="metric"><span>Top-K 평균 예측/실제 등락률</span><span>${fmt(s.avg_pred_return, 4)}% / ${fmt(s.avg_actual_return, 4)}%</span></div>
+    <div class="metric"><span>Top-K 방향 Hit</span><span>${fmt((s.hit_rate || 0) * 100, 2)}%</span></div>
+  `;
+  document.getElementById('recommendations').innerHTML = (data.recommendations || []).map((row, idx) => {
+    const signalClass = row.signal === 'BUY_CANDIDATE' ? 'buy' : (row.signal === 'WATCH' ? 'watch' : 'avoid');
+    return `
+      <tr>
+        <td>${idx + 1}</td>
+        <td>${row.symbol}</td>
+        <td>${fmt(row.kronos_score, 2)}</td>
+        <td><span class="badge ${signalClass}">${row.signal}</span></td>
+        <td>${fmt(row.pred_return_window, 4)}</td>
+        <td>${fmt(row.prediction_consistency * 100, 1)}%</td>
+        <td>${fmt(row.actual_return_window, 4)}</td>
+        <td>${row.direction_hit_window ? 'Y' : 'N'}</td>
+      </tr>
+    `;
+  }).join('');
+  await loadBacktestReport(fileSelect.value);
+  await refreshExportPreview();
+  setStatus('예측 검증 데이터를 표시했습니다.');
+}
+
+async function loadBacktestReport(fileName) {
+  const res = await axios.get('/api/stom/backtest-report', { params: { file: fileName } });
+  const report = res.data;
+  document.getElementById('filterBacktest').innerHTML = (report.filters || []).map(row => `
+    <tr>
+      <td>${row.label}</td>
+      <td>${fmt(row.count, 0)}</td>
+      <td>${fmt(row.avg_score, 2)}</td>
+      <td>${fmt(row.avg_pred_return, 4)}</td>
+      <td>${fmt(row.avg_actual_return, 4)}</td>
+      <td>${fmt(row.hit_rate * 100, 2)}%</td>
+      <td>${fmt(row.win_rate * 100, 2)}%</td>
+      <td>${fmt(row.profit_factor, 2)}</td>
+    </tr>
+  `).join('');
+  document.getElementById('scoreBandBacktest').innerHTML = ((report.segments || {}).score_band || []).map(row => `
+    <tr>
+      <td>${row.label}</td>
+      <td>${fmt(row.count, 0)}</td>
+      <td>${fmt(row.avg_score, 2)}</td>
+      <td>${fmt(row.avg_actual_return, 4)}</td>
+      <td>${fmt(row.hit_rate * 100, 2)}%</td>
+      <td>${fmt(row.win_rate * 100, 2)}%</td>
+    </tr>
+  `).join('');
+  const symbolRows = ((report.segments || {}).symbol || []).slice(0, 5).map(row => ({...row, label: `종목 ${row.label}`}));
+  const timeRows = ((report.segments || {}).asof_minute_bucket || []).slice(0, 5).map(row => ({...row, label: `시간 ${row.label}`}));
+  document.getElementById('segmentBacktest').innerHTML = symbolRows.concat(timeRows).map(row => `
+    <tr>
+      <td>${row.label}</td>
+      <td>${fmt(row.count, 0)}</td>
+      <td>${fmt(row.avg_score, 2)}</td>
+      <td>${fmt(row.avg_actual_return, 4)}</td>
+      <td>${fmt(row.hit_rate * 100, 2)}%</td>
+      <td>${fmt(row.win_rate * 100, 2)}%</td>
+    </tr>
+  `).join('');
+}
+
+function exportParams(format) {
+  const params = new URLSearchParams();
+  params.set('file', fileSelect.value);
+  params.set('format', format);
+  params.set('filter', document.getElementById('exportFilter').value);
+  params.set('long_only', '1');
+  const limit = document.getElementById('exportLimit').value;
+  if (limit) params.set('limit', limit);
+  const minScore = document.getElementById('exportMinScore').value;
+  if (minScore) params.set('min_score', minScore);
+  return params;
+}
+
+async function refreshExportPreview() {
+  if (!fileSelect.value) return;
+  const params = exportParams('json');
+  const res = await axios.get('/api/stom/recommendation-export', { params: Object.fromEntries(params) });
+  const payload = res.data;
+  const preview = {
+    metadata: payload.metadata,
+    sample_records: (payload.records || []).slice(0, 3)
+  };
+  document.getElementById('exportPreview').textContent = JSON.stringify(preview, null, 2);
+}
+
+function downloadExport(format) {
+  if (!fileSelect.value) {
+    setStatus('예측 파일이 없어 export 할 수 없습니다.', 'error');
+    return;
+  }
+  const url = `/api/stom/recommendation-export?${exportParams(format).toString()}`;
+  if (format === 'csv') {
+    window.location.href = url;
+  } else {
+    window.open(url, '_blank');
+  }
+}
+
+async function init() {
+  try {
+    await loadSummary();
+    await loadFiles();
+    await loadQlibBacktests();
+    await loadFilterReports();
+    if (fileSelect.value) await loadPrediction();
+    else setStatus('대시보드는 준비되었습니다. 예측 검증 CSV를 생성하면 차트가 표시됩니다.');
+    if (qlibBacktestSelect.value) await loadQlibBacktest();
+    if (filterReportSelect.value) await loadFilterReport();
+  } catch (err) {
+    setStatus(err.response?.data?.error || err.message, 'error');
+  }
+}
+
+restartStomTrainingAutoRefresh();
+init();
+</script>
+</body>
+</html>

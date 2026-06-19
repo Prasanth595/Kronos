@@ -2,9 +2,8 @@ import os
 import sys
 import json
 import time
+import importlib.util
 from time import gmtime, strftime
-import argparse
-import datetime
 import torch.distributed as dist
 import torch
 import torch.nn.functional as F
@@ -12,13 +11,27 @@ from torch.utils.data import DataLoader
 from torch.utils.data.distributed import DistributedSampler
 from torch.nn.parallel import DistributedDataParallel as DDP
 
-import comet_ml
+try:
+    import comet_ml
+except ImportError:  # pragma: no cover - optional dependency
+    comet_ml = None
 
-# Ensure project root is in path
-sys.path.append("../")
+# Ensure project root is in path regardless of the current working directory.
+from pathlib import Path
+
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
 from config import Config
 from dataset import QlibDataset
 from model.kronos import KronosTokenizer
+from tokenizer_safety import (
+    is_cuda_oom_error,
+    resolve_tokenizer_validation_batch_size,
+    save_tokenizer_checkpoint,
+    unwrap_model,
+    write_tokenizer_validation_failure,
+)
 # Import shared utilities
 from utils.training_utils import (
     setup_ddp,
@@ -46,28 +59,52 @@ def create_dataloaders(config: dict, rank: int, world_size: int):
     valid_dataset = QlibDataset('val')
     print(f"[Rank {rank}] Train dataset size: {len(train_dataset)}, Validation dataset size: {len(valid_dataset)}")
 
-    train_sampler = DistributedSampler(train_dataset, num_replicas=world_size, rank=rank, shuffle=True)
-    val_sampler = DistributedSampler(valid_dataset, num_replicas=world_size, rank=rank, shuffle=False)
+    use_distributed_sampler = world_size > 1 and dist.is_available() and dist.is_initialized()
+    train_sampler = (
+        DistributedSampler(train_dataset, num_replicas=world_size, rank=rank, shuffle=True)
+        if use_distributed_sampler
+        else None
+    )
+    val_sampler = (
+        DistributedSampler(valid_dataset, num_replicas=world_size, rank=rank, shuffle=False)
+        if use_distributed_sampler
+        else None
+    )
+    drop_last = config.get("dataset_sample_mode") != "full_sequential"
+
+    # GPU 최대 활용: persistent_workers + prefetch_factor 는 num_workers > 0 일 때만 의미.
+    n_workers = int(config.get('num_workers', 2) or 0)
+    persistent = bool(config.get('persistent_workers', False)) and n_workers > 0
+    loader_extra = {}
+    if n_workers > 0:
+        loader_extra['prefetch_factor'] = int(config.get('prefetch_factor', 2))
+        loader_extra['persistent_workers'] = persistent
 
     train_loader = DataLoader(
         train_dataset,
         batch_size=config['batch_size'],
         sampler=train_sampler,
-        shuffle=False,  # Shuffle is handled by the sampler
-        num_workers=config.get('num_workers', 2),
+        shuffle=train_sampler is None and config.get("dataset_sample_mode") != "full_sequential",
+        num_workers=n_workers,
         pin_memory=True,
-        drop_last=True
+        drop_last=drop_last,
+        **loader_extra,
     )
+    validation_batch_size = resolve_tokenizer_validation_batch_size(config)
     val_loader = DataLoader(
         valid_dataset,
-        batch_size=config['batch_size'],
+        batch_size=validation_batch_size,
         sampler=val_sampler,
         shuffle=False,
-        num_workers=config.get('num_workers', 2),
+        num_workers=n_workers,
         pin_memory=True,
-        drop_last=False
+        drop_last=False,
+        **loader_extra,
     )
-    print(f"[Rank {rank}] Dataloaders created. Train steps/epoch: {len(train_loader)}, Val steps: {len(val_loader)}")
+    print(
+        f"[Rank {rank}] Dataloaders created. Train steps/epoch: {len(train_loader)}, "
+        f"Val steps: {len(val_loader)}, Validation batch size: {validation_batch_size}"
+    )
     return train_loader, val_loader, train_dataset, valid_dataset
 
 
@@ -114,10 +151,32 @@ def train_model(model, device, config, save_dir, logger, rank, world_size):
     dt_result = {}
     batch_idx_global_train = 0
 
+    # ── AMP / autocast 설정 (opt-in) ────────────────────────────
+    amp_enabled = bool(config.get('tokenizer_enable_amp', False)) and torch.cuda.is_available()
+    amp_dtype_label = str(config.get('tokenizer_amp_dtype', 'bf16')).lower()
+    if amp_dtype_label in ('bf16', 'bfloat16'):
+        amp_dtype = torch.bfloat16
+    elif amp_dtype_label in ('fp16', 'float16', 'half'):
+        amp_dtype = torch.float16
+    else:
+        amp_enabled = False
+        amp_dtype = torch.float32
+    amp_use_scaler = amp_enabled and amp_dtype == torch.float16
+    scaler = torch.amp.GradScaler('cuda', enabled=amp_use_scaler)
+    if rank == 0 and amp_enabled:
+        print(f"[Rank {rank}] AMP enabled - dtype={amp_dtype_label} scaler={amp_use_scaler}")
+
+    def autocast_ctx():
+        if not amp_enabled:
+            from contextlib import nullcontext
+            return nullcontext()
+        return torch.amp.autocast('cuda', dtype=amp_dtype)
+
     for epoch_idx in range(config['epochs']):
         epoch_start_time = time.time()
         model.train()
-        train_loader.sampler.set_epoch(epoch_idx)
+        if hasattr(train_loader.sampler, "set_epoch"):
+            train_loader.sampler.set_epoch(epoch_idx)
 
         # Set dataset seeds for reproducible sampling
         train_dataset.set_epoch_seed(epoch_idx * 10000 + rank)
@@ -133,25 +192,34 @@ def train_model(model, device, config, save_dir, logger, rank, world_size):
                 end_idx = (j + 1) * (ori_batch_x.shape[0] // config['accumulation_steps'])
                 batch_x = ori_batch_x[start_idx:end_idx]
 
-                # Forward pass
-                zs, bsq_loss, _, _ = model(batch_x)
-                z_pre, z = zs
-
-                # Loss calculation
-                recon_loss_pre = F.mse_loss(z_pre, batch_x)
-                recon_loss_all = F.mse_loss(z, batch_x)
-                recon_loss = recon_loss_pre + recon_loss_all
-                loss = (recon_loss + bsq_loss) / 2  # Assuming w_1=w_2=1
+                # Forward + loss (AMP autocast 활성 시 bf16/fp16 로 자동 cast)
+                with autocast_ctx():
+                    zs, bsq_loss, _, _ = model(batch_x)
+                    z_pre, z = zs
+                    recon_loss_pre = F.mse_loss(z_pre, batch_x)
+                    recon_loss_all = F.mse_loss(z, batch_x)
+                    recon_loss = recon_loss_pre + recon_loss_all
+                    loss = (recon_loss + bsq_loss) / 2  # Assuming w_1=w_2=1
 
                 loss_scaled = loss / config['accumulation_steps']
                 current_batch_total_loss += loss.item()
-                loss_scaled.backward()
+                # fp16 일 때만 GradScaler — bf16/fp32 에서는 일반 backward
+                if amp_use_scaler:
+                    scaler.scale(loss_scaled).backward()
+                else:
+                    loss_scaled.backward()
 
             # --- Optimizer Step after Accumulation ---
-            torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=2.0)
-            optimizer.step()
+            if amp_use_scaler:
+                scaler.unscale_(optimizer)
+                torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=2.0)
+                scaler.step(optimizer)
+                scaler.update()
+            else:
+                torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=2.0)
+                optimizer.step()
             scheduler.step()
-            optimizer.zero_grad()
+            optimizer.zero_grad(set_to_none=True)
 
             # --- Logging (Master Process Only) ---
             if rank == 0 and (batch_idx_global_train + 1) % config['log_interval'] == 0:
@@ -170,27 +238,100 @@ def train_model(model, device, config, save_dir, logger, rank, world_size):
 
             batch_idx_global_train += 1
 
+        pre_validation_checkpoint = None
+        if config.get("tokenizer_save_pre_validation_checkpoint", True):
+            pre_validation_checkpoint = save_tokenizer_checkpoint(
+                model,
+                save_dir,
+                str(config.get("tokenizer_pre_validation_checkpoint_name") or "latest_train_model"),
+                rank,
+                reason=f"pre-validation epoch {epoch_idx + 1}",
+            )
+
+        if dist.is_available() and dist.is_initialized():
+            dist.barrier()
+
+        try:
+            del ori_batch_x, batch_x, zs, z_pre, z, loss, loss_scaled
+            del bsq_loss, recon_loss_pre, recon_loss_all, recon_loss
+        except UnboundLocalError:
+            pass
+
+        optimizer.zero_grad(set_to_none=True)
+        if torch.cuda.is_available() and config.get("tokenizer_empty_cache_before_validation", True):
+            torch.cuda.empty_cache()
+
         # --- Validation Loop ---
         model.eval()
         tot_val_loss_sum_rank = 0.0
         val_sample_count_rank = 0
-        with torch.no_grad():
-            for ori_batch_x, _ in val_loader:
-                ori_batch_x = ori_batch_x.to(device, non_blocking=True)
-                zs, _, _, _ = model(ori_batch_x)
-                _, z = zs
-                val_loss_item = F.mse_loss(z, ori_batch_x)
+        val_total_steps = len(val_loader)
+        val_log_interval = max(1, int(config.get('tokenizer_validation_log_interval', config['log_interval']) or 1))
+        val_max_steps = max(0, int(config.get('tokenizer_validation_max_steps', 0) or 0))
+        if rank == 0:
+            val_limit_label = val_max_steps if val_max_steps > 0 else "all"
+            print(
+                f"[Rank {rank}] Tokenizer validation started. "
+                f"Steps: {val_total_steps}, Log interval: {val_log_interval}, Max steps: {val_limit_label}"
+            )
+        try:
+            with torch.inference_mode():
+                for val_step_idx, (ori_batch_x, _) in enumerate(val_loader, start=1):
+                    ori_batch_x = ori_batch_x.to(device, non_blocking=True)
+                    with autocast_ctx():
+                        zs, _, _, _ = model(ori_batch_x)
+                        _, z = zs
+                        val_loss_item = F.mse_loss(z, ori_batch_x)
 
-                tot_val_loss_sum_rank += val_loss_item.item() * ori_batch_x.size(0)
-                val_sample_count_rank += ori_batch_x.size(0)
+                    tot_val_loss_sum_rank += val_loss_item.item() * ori_batch_x.size(0)
+                    val_sample_count_rank += ori_batch_x.size(0)
+                    should_log_validation = (
+                        val_step_idx == 1
+                        or val_step_idx % val_log_interval == 0
+                        or val_step_idx == val_total_steps
+                        or (val_max_steps > 0 and val_step_idx >= val_max_steps)
+                    )
+                    if rank == 0 and should_log_validation:
+                        running_val_loss = (
+                            tot_val_loss_sum_rank / val_sample_count_rank
+                            if val_sample_count_rank > 0
+                            else 0.0
+                        )
+                        print(
+                            f"[Rank {rank}] Tokenizer validation progress: "
+                            f"Step {val_step_idx}/{val_total_steps}, Samples {val_sample_count_rank}, "
+                            f"Loss: {running_val_loss:.4f}"
+                        )
+                    if val_max_steps > 0 and val_step_idx >= val_max_steps:
+                        if rank == 0:
+                            print(
+                                f"[Rank {rank}] Tokenizer validation capped at "
+                                f"{val_step_idx}/{val_total_steps} steps by KRONOS_TOKENIZER_VAL_MAX_STEPS."
+                            )
+                        break
+        except Exception as exc:
+            if torch.cuda.is_available() and is_cuda_oom_error(exc):
+                torch.cuda.empty_cache()
+                write_tokenizer_validation_failure(save_dir, epoch_idx, exc, pre_validation_checkpoint, rank)
+                if rank == 0:
+                    print(
+                        "Tokenizer validation failed with CUDA OOM. "
+                        f"Pre-validation checkpoint remains at {pre_validation_checkpoint}."
+                    )
+            raise
 
-        # Reduce validation losses from all processes
-        val_loss_sum_tensor = torch.tensor(tot_val_loss_sum_rank, device=device)
-        val_count_tensor = torch.tensor(val_sample_count_rank, device=device)
-        dist.all_reduce(val_loss_sum_tensor, op=dist.ReduceOp.SUM)
-        dist.all_reduce(val_count_tensor, op=dist.ReduceOp.SUM)
+        if dist.is_available() and dist.is_initialized():
+            val_loss_sum_tensor = torch.tensor(tot_val_loss_sum_rank, device=device)
+            val_count_tensor = torch.tensor(val_sample_count_rank, device=device)
+            dist.all_reduce(val_loss_sum_tensor, op=dist.ReduceOp.SUM)
+            dist.all_reduce(val_count_tensor, op=dist.ReduceOp.SUM)
+            val_loss_sum = val_loss_sum_tensor.item()
+            val_count = val_count_tensor.item()
+        else:
+            val_loss_sum = tot_val_loss_sum_rank
+            val_count = val_sample_count_rank
 
-        avg_val_loss = val_loss_sum_tensor.item() / val_count_tensor.item() if val_count_tensor.item() > 0 else 0
+        avg_val_loss = val_loss_sum / val_count if val_count > 0 else 0
 
         # --- End of Epoch Summary & Checkpointing (Master Process Only) ---
         if rank == 0:
@@ -204,12 +345,13 @@ def train_model(model, device, config, save_dir, logger, rank, world_size):
             if avg_val_loss < best_val_loss:
                 best_val_loss = avg_val_loss
                 save_path = f"{save_dir}/checkpoints/best_model"
-                model.module.save_pretrained(save_path)
+                unwrap_model(model).save_pretrained(save_path)
                 print(f"Best model saved to {save_path} (Val Loss: {best_val_loss:.4f})")
                 if logger:
                     logger.log_model("best_model", save_path)
 
-        dist.barrier()  # Ensure all processes finish the epoch before starting the next one.
+        if dist.is_available() and dist.is_initialized():
+            dist.barrier()
 
     dt_result['best_val_loss'] = best_val_loss
     return model, dt_result
@@ -220,7 +362,7 @@ def main(config: dict):
     Main function to orchestrate the DDP training process.
     """
     rank, world_size, local_rank = setup_ddp()
-    device = torch.device(f"cuda:{local_rank}")
+    device = torch.device(f"cuda:{local_rank}" if torch.cuda.is_available() else "cpu")
     set_seed(config['seed'], rank)
 
     save_dir = os.path.join(config['save_path'], config['tokenizer_save_folder_name'])
@@ -235,6 +377,8 @@ def main(config: dict):
             'world_size': world_size,
         }
         if config['use_comet']:
+            if comet_ml is None:
+                raise RuntimeError("KRONOS_USE_COMET is enabled but comet_ml is not installed.")
             comet_logger = comet_ml.Experiment(
                 api_key=config['comet_config']['api_key'],
                 project_name=config['comet_config']['project_name'],
@@ -245,15 +389,40 @@ def main(config: dict):
             comet_logger.log_parameters(config)
             print("Comet Logger Initialized.")
 
-    dist.barrier()  # Ensure save directory is created before proceeding
+    if dist.is_available() and dist.is_initialized():
+        dist.barrier()
 
     # Model Initialization
     model = KronosTokenizer.from_pretrained(config['pretrained_tokenizer_path'])
     model.to(device)
-    model = DDP(model, device_ids=[local_rank], find_unused_parameters=False)
+    if dist.is_available() and dist.is_initialized() and world_size > 1:
+        ddp_kwargs = {"device_ids": [local_rank]} if torch.cuda.is_available() else {}
+        model = DDP(model, find_unused_parameters=False, **ddp_kwargs)
+
+    # torch.compile (opt-in). Kronos 의 rotary attention 등 비표준 연산이 trace 실패할 수 있어
+    # fullgraph=False 가 안전. 실패 시 OOM 안전망과 무관하게 즉시 raise 되므로 학습 자체에는 영향 없음.
+    if bool(config.get('tokenizer_enable_compile', False)):
+        compile_mode = str(config.get('tokenizer_compile_mode', 'reduce-overhead'))
+        compile_fullgraph = bool(config.get('tokenizer_compile_fullgraph', False))
+        # CUDA torch.compile on this Windows workstation requires Triton during
+        # the first compiled forward pass. Without this guard the run can pass
+        # torch.compile(...) and then fail before step 1 with
+        # "ModuleNotFoundError: No module named 'triton'".
+        if torch.cuda.is_available() and importlib.util.find_spec('triton') is None:
+            if rank == 0:
+                print('[Rank 0] torch.compile skipped - Triton is not installed; using eager mode.')
+        else:
+            try:
+                model = torch.compile(model, mode=compile_mode, fullgraph=compile_fullgraph)
+                if rank == 0:
+                    print(f"[Rank {rank}] torch.compile enabled - mode={compile_mode} fullgraph={compile_fullgraph}")
+            except Exception as compile_exc:
+                if rank == 0:
+                    print(f"[Rank {rank}] torch.compile failed ({compile_exc}); falling back to eager mode.")
 
     if rank == 0:
-        print(f"Model Size: {get_model_size(model.module)}")
+        size_model = model.module if hasattr(model, "module") else model
+        print(f"Model Size: {get_model_size(size_model)}")
 
     # Start Training
     _, dt_result = train_model(
@@ -274,7 +443,8 @@ def main(config: dict):
 
 if __name__ == '__main__':
     # Usage: torchrun --standalone --nproc_per_node=NUM_GPUS train_tokenizer.py
-    if "WORLD_SIZE" not in os.environ:
+    disable_ddp = os.getenv("KRONOS_DISABLE_DDP", "").lower() in {"1", "true", "yes", "on"}
+    if "WORLD_SIZE" not in os.environ and not disable_ddp:
         raise RuntimeError("This script must be launched with `torchrun`.")
 
     config_instance = Config()

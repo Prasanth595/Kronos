@@ -1,0 +1,204 @@
+/* =================================================================
+   Kronos Dashboard — Core Design System
+   Human/Approachable + ML Operations
+   ================================================================= */
+
+/* ---------- Reset & Base ---------- */
+*, *::before, *::after { box-sizing: border-box; }
+* { margin: 0; }
+html, body { height: 100%; }
+body {
+  font-family: var(--font-body);
+  font-size: 14px;
+  line-height: 1.55;
+  color: var(--fg);
+  background: var(--bg);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
+  font-feature-settings: 'cv11', 'ss01', 'ss03';
+}
+img, svg, video, canvas { display: block; max-width: 100%; }
+button, input, textarea, select { font: inherit; color: inherit; }
+button { cursor: pointer; background: none; border: none; padding: 0; }
+a { color: inherit; text-decoration: none; }
+ul, ol { list-style: none; padding: 0; }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 4px; }
+
+/* ---------- Tokens (Light) ---------- */
+:root {
+  /* Surfaces */
+  --bg:              oklch(98% 0.004 240);
+  --surface:         oklch(100% 0 0);
+  --surface-raised:  oklch(99% 0.003 240);
+  --surface-sunken:  oklch(96% 0.005 240);
+  --surface-elev:    oklch(100% 0 0);
+
+  /* Borders */
+  --border:          oklch(91% 0.006 240);
+  --border-strong:   oklch(82% 0.01 240);
+  --border-faint:    oklch(94% 0.005 240);
+
+  /* Text */
+  --fg:              oklch(22% 0.02 240);
+  --fg-strong:       oklch(15% 0.025 240);
+  --muted:           oklch(48% 0.018 240);
+  --dim:             oklch(62% 0.014 240);
+  --faint:           oklch(78% 0.01 240);
+  --on-accent:       oklch(99% 0.005 170);
+
+  /* Brand — mint/teal */
+  --accent:          oklch(56% 0.12 170);
+  --accent-strong:   oklch(48% 0.14 170);
+  --accent-soft:     oklch(95% 0.04 170);
+  --accent-tint:     oklch(91% 0.05 170);
+  --accent-glow:     oklch(56% 0.12 170 / 0.18);
+
+  /* Secondary — warm coral for contrast */
+  --warm:            oklch(65% 0.16 35);
+  --warm-soft:       oklch(95% 0.04 35);
+
+  /* Status */
+  --success:         oklch(58% 0.15 150);
+  --success-soft:    oklch(94% 0.05 150);
+  --warn:            oklch(72% 0.16 75);
+  --warn-soft:       oklch(96% 0.06 75);
+  --danger:          oklch(58% 0.21 25);
+  --danger-soft:     oklch(96% 0.05 25);
+  --info:            oklch(60% 0.14 235);
+  --info-soft:       oklch(96% 0.04 235);
+
+  /* Chart palette */
+  --c-1:             oklch(56% 0.14 170);
+  --c-2:             oklch(60% 0.16 240);
+  --c-3:             oklch(68% 0.16 75);
+  --c-4:             oklch(62% 0.18 25);
+  --c-5:             oklch(56% 0.16 295);
+  --c-6:             oklch(60% 0.14 145);
+
+  /* Typography */
+  --font-display: 'Pretendard Variable', Pretendard, -apple-system, BlinkMacSystemFont, 'SF Pro Display', system-ui, 'Segoe UI', 'Malgun Gothic', sans-serif;
+  --font-body:    'Pretendard Variable', Pretendard, -apple-system, BlinkMacSystemFont, 'SF Pro Text', system-ui, 'Segoe UI', 'Malgun Gothic', sans-serif;
+  --font-mono:    'JetBrains Mono', 'D2Coding', 'Consolas', ui-monospace, SFMono-Regular, monospace;
+
+  /* Type scale */
+  --t-eyebrow:    11px;
+  --t-caption:    12px;
+  --t-body:       14px;
+  --t-body-lg:    15px;
+  --t-h6:         16px;
+  --t-h5:         18px;
+  --t-h4:         22px;
+  --t-h3:         28px;
+  --t-h2:         36px;
+  --t-h1:         48px;
+  --t-display:    64px;
+
+  /* Radii */
+  --r-sm: 8px;
+  --r-md: 12px;
+  --r-lg: 16px;
+  --r-xl: 24px;
+  --r-pill: 999px;
+
+  /* Shadows */
+  --shadow-xs: 0 1px 2px rgb(15 23 42 / 0.05);
+  --shadow-sm: 0 1px 2px rgb(15 23 42 / 0.04), 0 1px 3px rgb(15 23 42 / 0.05);
+  --shadow-md: 0 4px 8px rgb(15 23 42 / 0.04), 0 2px 4px rgb(15 23 42 / 0.04);
+  --shadow-lg: 0 12px 24px rgb(15 23 42 / 0.07), 0 4px 8px rgb(15 23 42 / 0.04);
+  --shadow-glow: 0 0 0 1px var(--accent-tint), 0 8px 32px var(--accent-glow);
+
+  /* Motion */
+  --ease-out: cubic-bezier(0.22, 0.8, 0.36, 1);
+  --ease-spring: cubic-bezier(0.34, 1.36, 0.64, 1);
+  --d-fast: 140ms;
+  --d-base: 220ms;
+  --d-slow: 400ms;
+
+  /* Layout */
+  --sidebar-w: 232px;
+  --sidebar-w-collapsed: 72px;
+  --header-h: 64px;
+  --content-max: 1480px;
+}
+
+/* ---------- Dark theme ---------- */
+[data-theme="dark"] {
+  --bg:              oklch(16% 0.02 250);
+  --surface:         oklch(20% 0.022 250);
+  --surface-raised:  oklch(23% 0.024 250);
+  --surface-sunken:  oklch(14% 0.018 250);
+  --surface-elev:    oklch(25% 0.026 250);
+
+  --border:          oklch(28% 0.025 250);
+  --border-strong:   oklch(36% 0.028 250);
+  --border-faint:    oklch(24% 0.022 250);
+
+  --fg:              oklch(94% 0.005 240);
+  --fg-strong:       oklch(98% 0.003 240);
+  --muted:           oklch(72% 0.014 240);
+  --dim:             oklch(58% 0.018 240);
+  --faint:           oklch(40% 0.02 240);
+  --on-accent:       oklch(15% 0.02 170);
+
+  --accent:          oklch(72% 0.14 170);
+  --accent-strong:   oklch(80% 0.15 170);
+  --accent-soft:     oklch(28% 0.08 170);
+  --accent-tint:     oklch(34% 0.10 170);
+  --accent-glow:     oklch(72% 0.14 170 / 0.25);
+
+  --warm:            oklch(72% 0.16 35);
+  --warm-soft:       oklch(30% 0.08 35);
+
+  --success-soft:    oklch(28% 0.08 150);
+  --warn-soft:       oklch(30% 0.10 75);
+  --danger-soft:     oklch(28% 0.10 25);
+  --info-soft:       oklch(28% 0.08 235);
+
+  --shadow-xs: 0 1px 2px rgb(0 0 0 / 0.30);
+  --shadow-sm: 0 1px 2px rgb(0 0 0 / 0.30), 0 1px 3px rgb(0 0 0 / 0.30);
+  --shadow-md: 0 4px 12px rgb(0 0 0 / 0.36);
+  --shadow-lg: 0 12px 32px rgb(0 0 0 / 0.45);
+  --shadow-glow: 0 0 0 1px var(--accent-tint), 0 0 32px var(--accent-glow);
+}
+
+/* ---------- Pretendard fallback CSS variable substitution ---------- */
+/* If Pretendard webfont isn't available, system fonts handle Korean gracefully. */
+
+/* ---------- Typography utilities ---------- */
+.text-eyebrow {
+  font: 600 var(--t-eyebrow)/1.4 var(--font-display);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+.text-caption  { font-size: var(--t-caption); color: var(--muted); }
+.text-body     { font-size: var(--t-body); }
+.text-body-lg  { font-size: var(--t-body-lg); }
+.text-h6 { font: 600 var(--t-h6)/1.4 var(--font-display); letter-spacing: -0.005em; }
+.text-h5 { font: 600 var(--t-h5)/1.35 var(--font-display); letter-spacing: -0.01em; }
+.text-h4 { font: 600 var(--t-h4)/1.3 var(--font-display); letter-spacing: -0.012em; }
+.text-h3 { font: 600 var(--t-h3)/1.25 var(--font-display); letter-spacing: -0.018em; }
+.text-h2 { font: 700 var(--t-h2)/1.2 var(--font-display); letter-spacing: -0.022em; }
+.text-h1 { font: 700 var(--t-h1)/1.1 var(--font-display); letter-spacing: -0.028em; }
+.text-display { font: 700 var(--t-display)/1.05 var(--font-display); letter-spacing: -0.035em; }
+
+.text-mono { font-family: var(--font-mono); font-feature-settings: 'tnum', 'zero'; }
+.tnum { font-variant-numeric: tabular-nums; font-feature-settings: 'tnum'; }
+
+.text-muted    { color: var(--muted); }
+.text-dim      { color: var(--dim); }
+.text-strong   { color: var(--fg-strong); font-weight: 600; }
+.text-accent   { color: var(--accent); }
+.text-success  { color: var(--success); }
+.text-warn     { color: var(--warn); }
+.text-danger   { color: var(--danger); }
+
+/* ---------- Layout utilities ---------- */
+.stack    { display: flex; flex-direction: column; gap: var(--gap, 12px); }
+.row      { display: flex; align-items: center; gap: var(--gap, 12px); }
+.row-wrap { display: flex; flex-wrap: wrap; gap: var(--gap, 12px); }
+.spread   { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.center   { display: flex; align-items: center; justify-content: center; }
+.grow     { flex: 1 1 auto; min-width: 0; }
+.no-shrink{ flex-shrink: 0; }

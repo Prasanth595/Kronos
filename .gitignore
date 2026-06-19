@@ -7,11 +7,17 @@ __pycache__/
 build/
 develop-eggs/
 dist/
+# [REV-7] Vite 빌드 산출물은 prebuilt 정책으로 commit 한다 (위 dist/ 규칙의 예외)
+!webui/static/v2/dist/
+!webui/static/v2/dist/**
 downloads/
 eggs/
 .eggs/
 lib/
 lib64/
+# Python lib/ 규칙의 예외 — Svelte 소스 디렉터리는 commit 한다
+!webui/v2_src/src/lib/
+!webui/v2_src/src/lib/**
 parts/
 sdist/
 var/
@@ -48,16 +54,38 @@ Desktop.ini
 *.parquet
 *.h5
 *.hdf5
+_database/
+finetune_csv/data/stom_*.csv
+finetune_csv/data/stom_*.json
+webui/stom_predictions/*.csv
+webui/stom_predictions/*.json
+webui/stom_predictions/
+webui/qlib_backtests/*.json
+webui/qlib_backtests/*.csv
+webui/rl_runs/
+finetune/qlib_exports/
+finetune/qlib_backtests/
+finetune/outputs/
+finetune/data/processed_datasets/
+finetune/data/stom_qlib*/
+qlib_data/
 
 # Model files (large files)
 *.pth
 *.pt
 *.ckpt
 *.bin
+finetune_csv/finetuned/
 
 # Logs
 *.log
 logs/
+.omx/
+# Local agent/workflow/session state
+.codegraph/
+.gjc/
+.omc/
+.omo/
 
 # Environment
 .env

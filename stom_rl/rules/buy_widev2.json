@@ -1,0 +1,12 @@
+{
+  "description": "STOM WideV2Final_B-style buy filter from docs/reference/stom_ai_agent/WideV2Final_B_20260428.py + examples.md section 4. The auto-generated WideV2 line adds a stronger demand gate on top of WideV1. Korean variables mapped to canonical ASCII features: 당일거래대금->amount, 체결강도->trade_strength, 순매수수량(초당매수수량-초당매도수량)->net_buy_qty_1s. The 시가총액/등락율 numeric bands have no canonical-feature column and are intentionally omitted (those gate by market-cap/price-change which are not in the 14 canonical features).",
+  "source": "docs/reference/stom_ai_agent/WideV2Final_B_20260428.py, examples.md#4",
+  "rules": [
+    {
+      "condition_id": "buy_widev2",
+      "side": "buy",
+      "expression": "amount > 100 and trade_strength >= 100 and net_buy_qty_1s > 0",
+      "rank_expression": "net_buy_qty_1s"
+    }
+  ]
+}

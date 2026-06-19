@@ -1,0 +1,12 @@
+{
+  "description": "Order-flow demand-pressure buy filter derived from STOM 복합조건 호가상승압력/체결강도급등 family (variables_reference.md). Captures the intent of '매수 우위 + 호가 상승 압력' using canonical ASCII features: 초당매수수량->buy_qty_1s, 초당매도수량->sell_qty_1s, 호가불균형(매수총잔량/(매수+매도총잔량))->bid_ask_imbalance, 체결강도->trade_strength. A candidate is a buy when intraday buying out-paces selling, the order book leans bid-side, and trade strength is at par or above.",
+  "source": "docs/reference/stom_ai_agent/variables_reference.md (호가상승압력, 체결강도, 초당매수/매도수량, 호가불균형)",
+  "rules": [
+    {
+      "condition_id": "buy_demand_pressure",
+      "side": "buy",
+      "expression": "buy_qty_1s > sell_qty_1s and bid_ask_imbalance >= 0.5 and trade_strength >= 100",
+      "rank_expression": "trade_strength * bid_ask_imbalance"
+    }
+  ]
+}

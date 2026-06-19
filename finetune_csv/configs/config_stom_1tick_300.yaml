@@ -1,0 +1,65 @@
+# STOM 1tick 300-table scale-up fine-tuning config.
+#
+# Purpose:
+# - First scale-up after the 100-table GPU pilot.
+# - Keep one epoch and bounded samples to validate runtime, memory, loss, prediction, and dashboard paths.
+#
+# Run:
+#   python finetune_csv/train_sequential.py --config finetune_csv/configs/config_stom_1tick_300.yaml
+
+data:
+  data_path: "finetune_csv/data/stom_1tick_kline_300.csv"
+  dataset_type: "stom_tick"
+  group_columns: ["symbol", "session"]
+  lookback_window: 300
+  predict_window: 60
+  max_context: 512
+  clip: 5.0
+  sample_stride: 10
+  max_samples: 50000
+  normalize_using: "lookback"
+  train_ratio: 0.85
+  val_ratio: 0.15
+  test_ratio: 0.0
+
+training:
+  tokenizer_epochs: 0
+  basemodel_epochs: 1
+  batch_size: 8
+  log_interval: 100
+  num_workers: 0
+  seed: 42
+  tokenizer_learning_rate: 0.0002
+  predictor_learning_rate: 0.000001
+  adam_beta1: 0.9
+  adam_beta2: 0.95
+  adam_weight_decay: 0.1
+  accumulation_steps: 1
+
+model_paths:
+  pretrained_tokenizer: "NeoQuasar/Kronos-Tokenizer-base"
+  pretrained_predictor: "NeoQuasar/Kronos-small"
+  exp_name: "stom_1tick_300_lookback300_pred60"
+  base_path: "finetune_csv/finetuned"
+  base_save_path: ""
+  finetuned_tokenizer: ""
+  tokenizer_save_name: "tokenizer"
+  basemodel_save_name: "basemodel"
+
+experiment:
+  name: "stom_1tick_300_scaleup"
+  description: "Scale-up fine-tune on 300 STOM 1tick grouped OHLCV tables"
+  use_comet: false
+  train_tokenizer: false
+  train_basemodel: true
+  skip_existing: false
+  pre_trained_tokenizer: true
+  pre_trained_predictor: true
+
+device:
+  use_cuda: true
+  device_id: 0
+
+distributed:
+  use_ddp: false
+  backend: "nccl"
