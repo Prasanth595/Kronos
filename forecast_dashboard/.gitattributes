@@ -1,0 +1,16 @@
+# Shell scripts and deploy config MUST stay LF — they run on the Linux VM and
+# bash/systemd break on CRLF (\r). Force LF regardless of core.autocrlf.
+*.sh        text eol=lf
+deploy/config.env text eol=lf
+deploy/vm_setup.sh text eol=lf
+
+# Keep these LF too for cross-platform consistency.
+*.py        text eol=lf
+*.js        text eol=lf
+*.css       text eol=lf
+*.html      text eol=lf
+*.md        text eol=lf
+
+# PowerShell deploy scripts are Windows-only; CRLF is the native convention and
+# PowerShell reads either, so pin CRLF for clarity.
+*.ps1       text eol=crlf

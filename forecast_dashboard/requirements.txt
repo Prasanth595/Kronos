@@ -1,0 +1,30 @@
+# Kronos Forecasting Dashboard — our dependencies.
+# (Kronos's own deps are also listed so a single install covers everything.)
+
+# --- our app stack ---
+# Bespoke web dashboard (FastAPI + vendored ECharts). Streamlit kept as a
+# legacy/fallback UI (app.py) but the primary UI is server.py + web/.
+fastapi>=0.110
+uvicorn>=0.27
+jinja2>=3.1
+streamlit>=1.36,<1.40
+yfinance>=0.2.40
+pandas>=2.0
+numpy>=1.24
+plotly>=5.20
+matplotlib>=3.7
+python-dotenv>=1.0
+mcp>=1.0
+
+# --- news / sentiment scoring (OPTIONAL, graceful fallback) ------------------
+# Layer 2 scorer priority: Gemini (Vertex, keyless on GCP) -> Anthropic ->
+# deterministic keyword baseline. The baseline always works with neither SDK.
+google-genai>=0.3      # Vertex AI Gemini (keyless via ADC on GCP)
+anthropic>=0.34        # fallback scorer / news context
+
+# --- Kronos's own deps (the cloned repo imports these) ---
+torch>=2.0.0
+einops>=0.8
+huggingface_hub>=0.30
+safetensors>=0.4
+tqdm>=4.66
