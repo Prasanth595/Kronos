@@ -1,0 +1,30 @@
+# Secrets / config
+.env
+
+# Data / artifacts
+forecasts.db
+*.db
+*.sqlite
+*.log
+
+# Optional standalone sibling clone of Kronos (when this folder is used outside
+# the Kronos repo). Inside the repo the model code is the parent dir, not here.
+Kronos/
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.ipynb_checkpoints/
+.pytest_cache/
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+
+# Throwaway deploy helper scripts + their captured output (see CLAUDE notes).
+# deploy/_common.ps1 is a real shared helper, so keep it tracked.
+deploy/_*
+!deploy/_common.ps1

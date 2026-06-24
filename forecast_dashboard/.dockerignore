@@ -1,0 +1,21 @@
+# Keep the Docker build context small + avoid baking local junk into the image.
+.git
+.venv
+__pycache__/
+*.py[cod]
+*.egg-info/
+.ipynb_checkpoints/
+.pytest_cache/
+
+# Local data / secrets / logs (the image uses /tmp + build-time HF cache)
+.env
+*.db
+*.sqlite
+*.log
+
+# The image clones Kronos itself at build time; don't ship a local clone.
+Kronos/
+
+# Deploy helpers + docs not needed inside the container
+deploy/_*
+*.md

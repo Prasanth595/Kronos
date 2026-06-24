@@ -1,0 +1,188 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="paper">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Kronos — forecast distribution & calibration</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Newsreader:opsz,wght@6..72,400;6..72,500;6..72,600&family=IBM+Plex+Mono:wght@400;500;600&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="/web/styles.css" />
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Crect width='16' height='16' fill='%23111'/%3E%3C/svg%3E" />
+</head>
+<body>
+  <!-- ===================== Top bar ===================== -->
+  <header class="topbar">
+    <div class="brand">
+      <span class="mark" aria-hidden="true"></span>
+      <div class="brand-text">
+        <h1>KRONOS</h1>
+        <span class="brand-sub">forecast distribution &amp; calibration</span>
+      </div>
+    </div>
+
+    <nav class="instrument-tabs" id="instrumentTabs" aria-label="Instruments"></nav>
+
+    <div class="topbar-right">
+      <div class="seg" id="viewToggle" role="tablist" aria-label="View">
+        <button data-view="detail" class="seg-btn is-active" role="tab">Detail</button>
+        <button data-view="glance" class="seg-btn" role="tab">All four</button>
+      </div>
+      <button class="ghost-btn" id="themeBtn" title="Cycle theme">
+        <span id="themeName">Paper</span>
+      </button>
+    </div>
+  </header>
+
+  <!-- ===================== Honesty ribbon ===================== -->
+  <div class="ribbon" id="ribbon">
+    <span class="dot"></span>
+    <span class="ribbon-text">Two honest layers, side by side: a <b>price-history forecast</b> (Kronos,
+      a distribution — not a prediction) and a <b>live news-sentiment</b> read. Kronos never
+      "reads the news"; we show where the two <b>agree or diverge</b>. No confidence score is implied.</span>
+  </div>
+
+  <!-- ===================== Detail view ===================== -->
+  <main id="detailView" class="view">
+    <!-- header strip -->
+    <section class="strip" id="headerStrip">
+      <div class="strip-main">
+        <div class="strip-name">
+          <h2 id="instName">—</h2>
+          <div class="badges" id="badges"></div>
+        </div>
+        <div class="strip-stats" id="stripStats"></div>
+      </div>
+      <div class="strip-controls">
+        <div class="control control-tf">
+          <label>Timeframe</label>
+          <div class="seg seg-tf" id="tfToggle" role="tablist" aria-label="Timeframe"></div>
+        </div>
+        <div class="control">
+          <label>Horizon <output id="predLenOut">30</output><span id="predLenUnit">d</span></label>
+          <input type="range" id="predLen" min="5" max="60" value="30" />
+        </div>
+        <div class="control">
+          <label>Lookback <output id="lookbackOut">400</output></label>
+          <input type="range" id="lookback" min="100" max="512" step="20" value="400" />
+        </div>
+        <div class="control">
+          <label>Paths <output id="nSamplesOut">30</output></label>
+          <input type="range" id="nSamples" min="10" max="80" step="5" value="30" />
+        </div>
+        <button class="solid-btn" id="runBtn">Run forecast</button>
+        <button class="ghost-btn" id="refreshBtn" title="Reconcile logged forecasts vs realized closes">Refresh actuals</button>
+      </div>
+    </section>
+
+    <!-- ===== Combined read (the headline output) ===== -->
+    <section class="combined" id="combinedBanner">
+      <div class="combined-layers">
+        <div class="layer" id="layerPrice">
+          <div class="layer-tag">Layer 1 · Price model (Kronos)</div>
+          <div class="layer-lean" id="priceLean">—</div>
+          <div class="layer-sub" id="priceSub">price-history distribution</div>
+        </div>
+        <div class="combined-verdict" id="combinedVerdict">
+          <div class="verdict-status" id="verdictStatus">—</div>
+          <div class="verdict-text" id="verdictText">Run a forecast to compare the two layers.</div>
+        </div>
+        <div class="layer" id="layerNews">
+          <div class="layer-tag">Layer 2 · News sentiment</div>
+          <div class="layer-lean" id="newsLean">—</div>
+          <div class="layer-sub" id="newsSub">live headline tone</div>
+        </div>
+      </div>
+    </section>
+
+    <div class="grid">
+      <!-- Fan chart -->
+      <section class="card span-2" id="fanCard">
+        <div class="card-head">
+          <h3>Forecast fan <span class="layer-pill">Layer 1</span></h3>
+          <span class="card-note">band width = uncertainty</span>
+        </div>
+        <div class="chart" id="fanChart"></div>
+        <div class="legend" id="fanLegend"></div>
+      </section>
+
+      <!-- News sentiment (Layer 2) -->
+      <section class="card" id="sentimentCard">
+        <div class="card-head">
+          <h3>News sentiment <span class="layer-pill alt">Layer 2</span></h3>
+          <span class="card-note" id="sentMethod">headline tone</span>
+        </div>
+        <div id="sentimentBody" class="sentiment-body"></div>
+      </section>
+
+      <!-- Distribution table -->
+      <section class="card" id="tableCard">
+        <div class="card-head">
+          <h3>Daily distribution</h3>
+          <span class="card-note">not "predicted price"</span>
+        </div>
+        <div class="table-wrap"><table id="distTable"></table></div>
+      </section>
+
+      <!-- Skew -->
+      <section class="card" id="skewCard">
+        <div class="card-head"><h3>Skew / downside tail</h3></div>
+        <div class="chart chart-sm" id="skewChart"></div>
+        <p class="interp" id="skewSentence">—</p>
+      </section>
+
+      <!-- Prob below -->
+      <section class="card" id="probCard">
+        <div class="card-head"><h3>% paths below current</h3></div>
+        <div class="chart chart-sm" id="probChart"></div>
+      </section>
+
+      <!-- Accuracy -->
+      <section class="card" id="accCard">
+        <div class="card-head">
+          <h3>Calibration so far</h3>
+          <span class="card-note">headline: band hit-rate</span>
+        </div>
+        <div id="accBody" class="acc-body"></div>
+      </section>
+
+      <!-- Analysis bot -->
+      <section class="card span-2" id="analysisCard">
+        <div class="card-head"><h3>Read</h3><span class="card-note">deterministic, no score</span></div>
+        <div class="prose" id="analysisBody">—</div>
+      </section>
+
+      <!-- Scored headlines -->
+      <section class="card" id="newsCard">
+        <div class="card-head">
+          <h3>Scored headlines</h3>
+          <span class="card-note">free · yahoo finance</span>
+        </div>
+        <div id="newsBody" class="news-body"></div>
+      </section>
+    </div>
+  </main>
+
+  <!-- ===================== Glance view ===================== -->
+  <main id="glanceView" class="view hidden">
+    <div class="glance-grid" id="glanceGrid"></div>
+  </main>
+
+  <!-- ===================== Loading overlay ===================== -->
+  <div class="overlay hidden" id="overlay">
+    <div class="overlay-card">
+      <div class="spinner"></div>
+      <div class="overlay-text" id="overlayText">Running forecast…</div>
+      <div class="overlay-sub">First run loads the model (CPU). Subsequent runs are cached.</div>
+    </div>
+  </div>
+
+  <footer class="foot">
+    <span>Kronos demo-account forecasting tool · price model + news sentiment.</span>
+    <span id="footStatus">—</span>
+  </footer>
+
+  <script src="/web/vendor/echarts.min.js"></script>
+  <script src="/web/app.js"></script>
+</body>
+</html>
