@@ -206,7 +206,38 @@ def save_prediction_results(file_path, prediction_type, prediction_results, actu
         print(f"Failed to save prediction results: {e}")
         return None
 
-def create_prediction_chart(df, pred_df, lookback, pred_len, actual_df=None, historical_start_idx=0):
+def make_future_timestamps(df, pred_len):
+    """Generate pred_len future timestamps continuing the data's bar frequency.
+
+    Daily and slower data advances over business days (weekends skipped).
+    Intraday data stays inside the observed session window (e.g. 09:15-15:30)
+    and rolls to the next business day's session start when a bar would fall
+    outside it.
+    """
+    ts = df['timestamps']
+    freq = ts.diff().median()
+    last = ts.iloc[-1]
+
+    if freq >= pd.Timedelta(days=1):
+        future = pd.bdate_range(start=last + pd.Timedelta(days=1), periods=pred_len)
+        return pd.Series(future, name='timestamps')
+
+    session_start = ts.dt.time.min()
+    session_end = ts.dt.time.max()
+    out = []
+    t = last
+    while len(out) < pred_len:
+        t = t + freq
+        if t.time() > session_end or t.time() < session_start:
+            d = t.normalize() + pd.Timedelta(days=1)
+            while d.weekday() >= 5:
+                d += pd.Timedelta(days=1)
+            t = pd.Timestamp.combine(d.date(), session_start)
+        out.append(t)
+    return pd.Series(out, name='timestamps')
+
+
+def create_prediction_chart(df, pred_df, lookback, pred_len, actual_df=None, historical_start_idx=0, pred_timestamps_override=None):
     """Create prediction chart"""
     # Use specified historical data start position, not always from the beginning of df
     if historical_start_idx + lookback + pred_len <= len(df):
@@ -230,7 +261,7 @@ def create_prediction_chart(df, pred_df, lookback, pred_len, actual_df=None, his
         high=historical_df['high'],
         low=historical_df['low'],
         close=historical_df['close'],
-        name='Historical Data (400 data points)',
+        name=f'History ({len(historical_df)} bars)',
         increasing_line_color='#26A69A',
         decreasing_line_color='#EF5350'
     ))
@@ -238,7 +269,9 @@ def create_prediction_chart(df, pred_df, lookback, pred_len, actual_df=None, his
     # Add prediction data (candlestick chart)
     if pred_df is not None and len(pred_df) > 0:
         # Calculate prediction data timestamps - ensure continuity with historical data
-        if 'timestamps' in df.columns and len(historical_df) > 0:
+        if pred_timestamps_override is not None:
+            pred_timestamps = pd.DatetimeIndex(pred_timestamps_override)
+        elif 'timestamps' in df.columns and len(historical_df) > 0:
             # Start from the last timestamp of historical data, create prediction timestamps with the same time interval
             last_timestamp = historical_df['timestamps'].iloc[-1]
             time_diff = df['timestamps'].iloc[1] - df['timestamps'].iloc[0] if len(df) > 1 else pd.Timedelta(hours=1)
@@ -252,21 +285,26 @@ def create_prediction_chart(df, pred_df, lookback, pred_len, actual_df=None, his
             # If no timestamps, use index
             pred_timestamps = range(len(historical_df), len(historical_df) + len(pred_df))
         
+        # Forecast as candles in blue/purple so they can't be confused with real candles
         fig.add_trace(go.Candlestick(
-            x=pred_timestamps,
+            x=list(pred_timestamps),
             open=pred_df['open'],
             high=pred_df['high'],
             low=pred_df['low'],
             close=pred_df['close'],
-            name='Prediction Data (120 data points)',
-            increasing_line_color='#66BB6A',
-            decreasing_line_color='#FF7043'
+            name=f'Kronos forecast ({len(pred_df)} bars)',
+            increasing_line_color='#2196F3',
+            increasing_fillcolor='rgba(33, 150, 243, 0.55)',
+            decreasing_line_color='#7E57C2',
+            decreasing_fillcolor='rgba(126, 87, 194, 0.55)'
         ))
     
     # Add actual data for comparison (if exists)
     if actual_df is not None and len(actual_df) > 0:
         # Actual data should be in the same time period as prediction data
-        if 'timestamps' in df.columns:
+        if 'timestamps' in actual_df.columns:
+            actual_timestamps = pd.DatetimeIndex(actual_df['timestamps'])
+        elif 'timestamps' in df.columns:
             # Actual data should use the same timestamps as prediction data to ensure time alignment
             if 'pred_timestamps' in locals():
                 actual_timestamps = pred_timestamps
@@ -291,20 +329,42 @@ def create_prediction_chart(df, pred_df, lookback, pred_len, actual_df=None, his
             high=actual_df['high'],
             low=actual_df['low'],
             close=actual_df['close'],
-            name='Actual Data (120 data points)',
-            increasing_line_color='#FF9800',
-            decreasing_line_color='#F44336'
+            name=f'Actual ({len(actual_df)} bars)',
+            increasing_line_color='#26A69A',
+            decreasing_line_color='#EF5350'
         ))
     
+    # Vertical divider marking where history ends and the forecast begins
+    if 'timestamps' in historical_df.columns and len(historical_df) > 0 and 'pred_timestamps' in locals():
+        boundary = historical_df['timestamps'].iloc[-1]
+        fig.add_vline(x=boundary, line_dash='dot', line_color='#78909C', line_width=2)
+        fig.add_annotation(
+            x=boundary, y=1, yref='paper', yanchor='bottom',
+            text='Forecast starts here ▶', showarrow=False,
+            font=dict(size=12, color='#455A64'), bgcolor='rgba(255,255,255,0.8)'
+        )
+
     # Update layout
     fig.update_layout(
-        title='Kronos Financial Prediction Results - 400 Historical Points + 120 Prediction Points vs 120 Actual Points',
-        xaxis_title='Time',
+        title=None,
+        xaxis_title=None,
         yaxis_title='Price',
         template='plotly_white',
-        height=600,
-        showlegend=True
+        autosize=True,
+        showlegend=True,
+        hovermode='x',
+        dragmode='pan',
+        legend=dict(
+            orientation='h',
+            yanchor='top',
+            y=-0.08,
+            xanchor='center',
+            x=0.5,
+            font=dict(size=13)
+        ),
+        margin=dict(l=55, r=15, t=35, b=10)
     )
+
     
     # Ensure x-axis time continuity
     if 'timestamps' in historical_df.columns:
@@ -319,9 +379,35 @@ def create_prediction_chart(df, pred_df, lookback, pred_len, actual_df=None, his
         
         if all_timestamps:
             all_timestamps = sorted(all_timestamps)
+            # Default view: zoom to the interesting region (last ~60 history bars + forecast)
+            if len(historical_df) > 60:
+                view_start = historical_df['timestamps'].iloc[-60]
+            else:
+                view_start = all_timestamps[0]
+            view_end = all_timestamps[-1] + (all_timestamps[-1] - view_start) * 0.02
+
+            # Skip non-trading time on the axis (TradingView-style):
+            # weekends, market holidays, and overnight hours for intraday data
+            ts_index = pd.DatetimeIndex(all_timestamps)
+            rangebreaks = [dict(bounds=['sat', 'mon'])]
+            trading_days = set(ts_index.normalize())
+            bdays = pd.bdate_range(ts_index.min().normalize(), ts_index.max().normalize())
+            holidays = [d.strftime('%Y-%m-%d') for d in bdays if d not in trading_days]
+            if holidays:
+                rangebreaks.append(dict(values=holidays))
+            bar_freq = ts_index.to_series().diff().median()
+            if bar_freq < pd.Timedelta(days=1):
+                first_bar = min(ts_index.time)
+                last_bar = max(ts_index.time)
+                session_open = first_bar.hour + first_bar.minute / 60
+                session_close = (last_bar.hour + last_bar.minute / 60
+                                 + bar_freq.total_seconds() / 3600)
+                rangebreaks.append(dict(bounds=[session_close, session_open], pattern='hour'))
+
             fig.update_xaxes(
-                range=[all_timestamps[0], all_timestamps[-1]],
+                range=[view_start, view_end],
                 rangeslider_visible=False,
+                rangebreaks=rangebreaks,
                 type='date'
             )
     
@@ -437,8 +523,31 @@ def predict():
                 
                 # Process time period selection
                 start_date = data.get('start_date')
-                
-                if start_date:
+                forecast_future = bool(data.get('forecast_future', False))
+
+                if forecast_future:
+                    # Future forecast anchored 2 days back: the model only sees data up to
+                    # 2 trading days ago, so the first bars of the forecast overlap known
+                    # actual candles (easy visual comparison) and the rest is real future.
+                    start_date = None
+                    ts_all = df['timestamps']
+                    freq = ts_all.diff().median()
+                    if freq >= pd.Timedelta(days=1):
+                        holdout = 2
+                    else:
+                        day_ids = ts_all.dt.normalize()
+                        holdout = int((day_ids == day_ids.iloc[-1]).sum()) * 2
+                    holdout = min(holdout, max(0, len(df) - lookback))
+                    hist_end = len(df) - holdout
+
+                    x_df = df.iloc[hist_end-lookback:hist_end][required_cols]
+                    x_timestamp = df['timestamps'].iloc[hist_end-lookback:hist_end]
+                    y_timestamp = make_future_timestamps(df.iloc[:hist_end], pred_len)
+                    anchor_bar = df['timestamps'].iloc[hist_end-1]
+                    prediction_type = (f"Future forecast anchored at {anchor_bar.strftime('%Y-%m-%d %H:%M')} "
+                                       f"(2 trading days back): first {holdout} predicted bars overlap known "
+                                       f"actuals for comparison, remaining {pred_len - holdout} bars are true future")
+                elif start_date:
                     # Custom time period - fix logic: use data within selected window
                     start_dt = pd.to_datetime(start_date)
                     
@@ -494,8 +603,22 @@ def predict():
         # Prepare actual data for comparison (if exists)
         actual_data = []
         actual_df = None
-        
-        if start_date:  # Custom time period
+
+        if forecast_future:
+            # The held-out last bars are known actuals overlapping the forecast start
+            if holdout > 0:
+                actual_df = df.iloc[hist_end:]
+                for i, (_, row) in enumerate(actual_df.iterrows()):
+                    actual_data.append({
+                        'timestamp': row['timestamps'].isoformat(),
+                        'open': float(row['open']),
+                        'high': float(row['high']),
+                        'low': float(row['low']),
+                        'close': float(row['close']),
+                        'volume': float(row['volume']) if 'volume' in row else 0,
+                        'amount': float(row['amount']) if 'amount' in row else 0
+                    })
+        elif start_date:  # Custom time period
             # Fix logic: use data within selected window
             # Prediction uses first 400 data points within selected window
             # Actual data should be last 120 data points within selected window
@@ -536,7 +659,10 @@ def predict():
                     })
         
         # Create chart - pass historical data start position
-        if start_date:
+        if forecast_future:
+            # Future forecast: history is the tail of the file up to the anchor
+            historical_start_idx = max(0, hist_end - lookback)
+        elif start_date:
             # Custom time period: find starting position of historical data in original df
             start_dt = pd.to_datetime(start_date)
             mask = df['timestamps'] >= start_dt
@@ -544,11 +670,15 @@ def predict():
         else:
             # Latest data: start from beginning
             historical_start_idx = 0
-        
-        chart_json = create_prediction_chart(df, pred_df, lookback, pred_len, actual_df, historical_start_idx)
+
+        chart_json = create_prediction_chart(
+            df, pred_df, lookback, pred_len, actual_df, historical_start_idx,
+            pred_timestamps_override=(y_timestamp if forecast_future else None))
         
         # Prepare prediction result data - fix timestamp calculation logic
-        if 'timestamps' in df.columns:
+        if forecast_future:
+            future_timestamps = list(y_timestamp)
+        elif 'timestamps' in df.columns:
             if start_date:
                 # Custom time period: use selected window data to calculate timestamps
                 start_dt = pd.to_datetime(start_date)
@@ -705,4 +835,5 @@ if __name__ == '__main__':
     else:
         print("Tip: Will use simulated data for demonstration")
     
-    app.run(debug=True, host='0.0.0.0', port=7070)
+    port = int(os.environ.get('KRONOS_WEBUI_PORT', 8090))
+    app.run(debug=True, host='0.0.0.0', port=port, use_reloader=False)
