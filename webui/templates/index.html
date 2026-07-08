@@ -201,7 +201,8 @@
 
         #chart {
             width: 100%;
-            height: 600px;
+            height: calc(100vh - 240px);
+            min-height: 520px;
         }
 
         .data-info {
@@ -507,8 +508,8 @@
 
                 <hr style="margin: 20px 0; border: 1px solid #e2e8f0;">
 
-                <!-- Time Window Selector -->
-                <div class="time-window-container">
+                <!-- Time Window Selector (hidden: predictions always run from the latest data into the future) -->
+                <div class="time-window-container" style="display: none;">
                     <h3>⏰ Time Window Selection</h3>
                     <div class="time-window-info">
                         <span id="window-start">Start: --</span>
@@ -563,6 +564,12 @@
                     <label for="sample-count">Sample Count:</label>
                     <input type="number" id="sample-count" value="1" min="1" max="5" step="1">
                     <small class="form-text">Generate multiple prediction samples to improve quality (recommended 1-3)</small>
+                </div>
+
+                <div class="form-group" style="background:#eef2ff; border:1px solid #c7d2fe; border-radius:8px; padding:12px;">
+                    <input type="checkbox" id="forecast-future" checked style="display:none;">
+                    <span><b>🔮 Future forecast mode</b></span>
+                    <small class="form-text">The forecast starts 2 trading days back: the first bars overlap known candles so you can judge the model against reality, the rest is true future. Chart: scroll to zoom, drag to pan, double-click to reset — the price axis auto-fits what you're viewing.</small>
                 </div>
 
                 <button id="predict-btn" class="btn btn-success" disabled>
@@ -1046,35 +1053,41 @@
                 
                 const lookback = parseInt(document.getElementById('lookback').value);
                 const predLen = parseInt(document.getElementById('pred-len').value);
-                
-                // Get selected time range from time window slider
-                const startHandle = document.getElementById('start-handle');
-                const startPercentage = parseFloat(startHandle.style.left) / 100;
-                
-                if (!sliderData) {
-                    showStatus('error', 'Time window slider not initialized');
-                    return;
-                }
-                
-                // Calculate selected time range
-                const totalTime = sliderData.endDate.getTime() - sliderData.startDate.getTime();
-                const startTime = sliderData.startDate.getTime() + (totalTime * startPercentage);
-                const startDate = new Date(startTime);
-                
+                const forecastFuture = document.getElementById('forecast-future').checked;
+
                 // Get prediction quality parameters
                 const temperature = parseFloat(document.getElementById('temperature').value);
                 const topP = parseFloat(document.getElementById('top-p').value);
                 const sampleCount = parseInt(document.getElementById('sample-count').value);
-                
+
                 let predictionParams = {
                     file_path: currentDataFile,
                     lookback: lookback,
                     pred_len: predLen,
-                    start_date: startDate.toISOString().slice(0, 16), // Format as YYYY-MM-DDTHH:MM
                     temperature: temperature,
                     top_p: topP,
                     sample_count: sampleCount
                 };
+
+                if (forecastFuture) {
+                    // True future forecast: latest bars, no slider window
+                    predictionParams.forecast_future = true;
+                } else {
+                    // Get selected time range from time window slider
+                    const startHandle = document.getElementById('start-handle');
+                    const startPercentage = parseFloat(startHandle.style.left) / 100;
+
+                    if (!sliderData) {
+                        showStatus('error', 'Time window slider not initialized');
+                        return;
+                    }
+
+                    // Calculate selected time range
+                    const totalTime = sliderData.endDate.getTime() - sliderData.startDate.getTime();
+                    const startTime = sliderData.startDate.getTime() + (totalTime * startPercentage);
+                    const startDate = new Date(startTime);
+                    predictionParams.start_date = startDate.toISOString().slice(0, 16); // Format as YYYY-MM-DDTHH:MM
+                }
                 
                 console.log('🚀 Starting prediction, parameters:', predictionParams);
                 
@@ -1096,12 +1109,53 @@
             }
         }
 
+        // TradingView-style: refit the price axis to whatever x-range is visible
+        function autoFitY(gd) {
+            const xr = gd.layout.xaxis.range;
+            if (!xr) return;
+            const x0 = new Date(xr[0]).getTime();
+            const x1 = new Date(xr[1]).getTime();
+            let lo = Infinity, hi = -Infinity;
+            gd.data.forEach(t => {
+                if (!t.x) return;
+                const highs = t.high || t.y;
+                const lows = t.low || t.y;
+                for (let i = 0; i < t.x.length; i++) {
+                    const xt = new Date(t.x[i]).getTime();
+                    if (xt >= x0 && xt <= x1) {
+                        const h = highs ? Number(highs[i]) : NaN;
+                        const l = lows ? Number(lows[i]) : NaN;
+                        if (!isNaN(h) && h > hi) hi = h;
+                        if (!isNaN(l) && l < lo) lo = l;
+                    }
+                }
+            });
+            if (isFinite(lo) && isFinite(hi) && hi > lo) {
+                const pad = (hi - lo) * 0.06;
+                Plotly.relayout(gd, {'yaxis.range': [lo - pad, hi + pad]});
+            }
+        }
+
         // Display prediction results
         function displayPredictionResult(result) {
-            // Display chart
+            // Display chart with TradingView-like controls: wheel = zoom, drag = pan,
+            // double-click = reset, price axis auto-fits the visible candles
             const chartData = JSON.parse(result.chart);
-            Plotly.newPlot('chart', chartData.data, chartData.layout);
-            
+            const gd = document.getElementById('chart');
+            Plotly.newPlot(gd, chartData.data, chartData.layout, {
+                responsive: true,
+                scrollZoom: true,
+                displaylogo: false
+            }).then(() => {
+                autoFitY(gd);
+                gd.on('plotly_relayout', (e) => {
+                    // Only react to x-axis changes (our own y-relayout must not re-trigger)
+                    if (e && (e['xaxis.range[0]'] !== undefined || e['xaxis.range'] !== undefined || e['xaxis.autorange'])) {
+                        autoFitY(gd);
+                    }
+                });
+            });
+
             // Display comparison analysis (if actual data exists)
             if (result.has_comparison) {
                 displayComparisonAnalysis(result);
