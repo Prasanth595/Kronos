@@ -481,6 +481,54 @@
 
                 <hr style="margin: 20px 0; border: 1px solid #e2e8f0;">
 
+                <!-- Fetch Market Data -->
+                <div class="form-group">
+                    <label>Fetch Market Data (Binance)</label>
+                    <small class="form-text">Select a symbol and download live OHLCV candles into the data folder</small>
+                </div>
+
+                <div class="form-group">
+                    <label for="market-symbol-select">Symbol:</label>
+                    <select id="market-symbol-select">
+                        <option value="BTCUSDT">BTCUSDT</option>
+                    </select>
+                </div>
+
+                <div class="form-group">
+                    <label for="market-symbol-custom">Custom Symbol:</label>
+                    <input type="text" id="market-symbol-custom" placeholder="e.g. BTCUSDT" maxlength="20">
+                    <small class="form-text">Optional — overrides the dropdown when filled</small>
+                </div>
+
+                <div class="form-group">
+                    <label for="market-interval-select">Interval:</label>
+                    <select id="market-interval-select">
+                        <option value="5m" selected>5m</option>
+                        <option value="1m">1m</option>
+                        <option value="15m">15m</option>
+                        <option value="1h">1h</option>
+                        <option value="4h">4h</option>
+                        <option value="1d">1d</option>
+                    </select>
+                </div>
+
+                <div class="form-group">
+                    <label for="market-period-select">Period:</label>
+                    <select id="market-period-select">
+                        <option value="today">Today (UTC)</option>
+                        <option value="last_3">Last 3 days</option>
+                        <option value="last_7">Last 7 days</option>
+                        <option value="last_30" selected>Last 30 days</option>
+                    </select>
+                    <small class="form-text">Use Last 30 days for enough candles when lookback is large (e.g. 2000 on 5m)</small>
+                </div>
+
+                <button id="fetch-market-btn" class="btn btn-success">
+                    ⬇ Get Data
+                </button>
+
+                <hr style="margin: 20px 0; border: 1px solid #e2e8f0;">
+
                 <!-- Data File Selection -->
                 <div class="form-group">
                     <label for="data-file-select">Select Data File:</label>
@@ -513,7 +561,7 @@
                     <div class="time-window-info">
                         <span id="window-start">Start: --</span>
                         <span id="window-end">End: --</span>
-                        <span id="window-size">Window Size: 400+120=520 data points</span>
+                        <span id="window-size">Window Size: set lookback + prediction length</span>
                     </div>
                     
                     <div class="time-window-slider">
@@ -528,20 +576,20 @@
                         </div>
                     </div>
                     
-                    <small class="form-text">Drag slider to select time window position for 520 data points, green area represents fixed 400+120 data point range</small>
+                    <small class="form-text">Drag slider to select where the lookback+prediction window sits in your data</small>
                 </div>
 
                 <!-- Prediction Parameters -->
                 <div class="form-group">
                     <label for="lookback">Lookback Window Size:</label>
-                    <input type="number" id="lookback" value="400" readonly>
-                    <small class="form-text">Fixed at 400 data points</small>
+                    <input type="number" id="lookback" value="2000" min="2" max="2048" step="1">
+                    <small class="form-text">Historical candles used as input (max 512 for small/base, 2048 for mini)</small>
                 </div>
 
                 <div class="form-group">
                     <label for="pred-len">Prediction Length:</label>
-                    <input type="number" id="pred-len" value="120" readonly>
-                    <small class="form-text">Fixed at 120 data points</small>
+                    <input type="number" id="pred-len" value="120" min="1" max="512" step="1">
+                    <small class="form-text">Number of future candles to predict</small>
                 </div>
 
                 <!-- Prediction Quality Parameters -->
@@ -654,6 +702,9 @@
             
             // Load data file list
             await loadDataFiles();
+
+            // Load market symbol options for Binance fetch
+            await loadMarketOptions();
             
             // Set up event listeners
             setupEventListeners();
@@ -747,6 +798,108 @@
                 }
             } catch (error) {
                 console.error('❌ Failed to get model status:', error);
+            }
+        }
+
+        // Load popular symbols / intervals for market fetch UI
+        async function loadMarketOptions() {
+            try {
+                const response = await axios.get('/api/market-symbols');
+                const { symbols, intervals, periods } = response.data;
+
+                const symbolSelect = document.getElementById('market-symbol-select');
+                symbolSelect.innerHTML = '';
+                symbols.forEach(sym => {
+                    const option = document.createElement('option');
+                    option.value = sym;
+                    option.textContent = sym;
+                    if (sym === 'BTCUSDT') option.selected = true;
+                    symbolSelect.appendChild(option);
+                });
+
+                if (intervals && intervals.length) {
+                    const intervalSelect = document.getElementById('market-interval-select');
+                    intervalSelect.innerHTML = '';
+                    intervals.forEach(iv => {
+                        const option = document.createElement('option');
+                        option.value = iv;
+                        option.textContent = iv;
+                        if (iv === '5m') option.selected = true;
+                        intervalSelect.appendChild(option);
+                    });
+                }
+
+                if (periods && periods.length) {
+                    const periodSelect = document.getElementById('market-period-select');
+                    periodSelect.innerHTML = '';
+                    periods.forEach(p => {
+                        const option = document.createElement('option');
+                        option.value = p.value;
+                        option.textContent = p.label;
+                        if (p.value === 'last_30') option.selected = true;
+                        periodSelect.appendChild(option);
+                    });
+                }
+            } catch (error) {
+                console.error('❌ Failed to load market options:', error);
+            }
+        }
+
+        // Download candles from Binance and auto-load them
+        async function fetchMarketData() {
+            const custom = document.getElementById('market-symbol-custom').value.trim().toUpperCase();
+            const symbol = custom || document.getElementById('market-symbol-select').value;
+            const interval = document.getElementById('market-interval-select').value;
+            const period = document.getElementById('market-period-select').value;
+
+            if (!symbol) {
+                showStatus('error', 'Please select or enter a symbol');
+                return;
+            }
+
+            try {
+                showLoading(true);
+                document.getElementById('fetch-market-btn').disabled = true;
+                showStatus('info', `Fetching ${symbol} ${interval} (${period}) from Binance...`);
+
+                const response = await axios.post('/api/fetch-market-data', {
+                    symbol,
+                    interval,
+                    period
+                });
+
+                if (response.data.success) {
+                    currentDataFile = response.data.file_path;
+                    currentDataInfo = response.data.data_info;
+                    showDataInfo(response.data.data_info);
+                    showStatus('success', response.data.message);
+
+                    await loadDataFiles();
+                    const dataFileSelect = document.getElementById('data-file-select');
+                    dataFileSelect.value = response.data.file_path;
+                    if (!dataFileSelect.value) {
+                        // Fallback: match by filename if absolute path differs
+                        for (const opt of dataFileSelect.options) {
+                            if (opt.textContent.startsWith(response.data.file_name)) {
+                                dataFileSelect.value = opt.value;
+                                currentDataFile = opt.value;
+                                break;
+                            }
+                        }
+                    }
+
+                    if (modelLoaded) {
+                        document.getElementById('predict-btn').disabled = false;
+                    }
+                } else {
+                    showStatus('error', response.data.error || 'Fetch failed');
+                }
+            } catch (error) {
+                console.error('❌ Market data fetch failed:', error);
+                showStatus('error', `Fetch failed: ${error.response?.data?.error || error.message}`);
+            } finally {
+                showLoading(false);
+                document.getElementById('fetch-market-btn').disabled = false;
             }
         }
 
@@ -903,26 +1056,39 @@
             });
         }
 
+        function getLookbackSize() {
+            const value = parseInt(document.getElementById('lookback').value, 10);
+            return Number.isFinite(value) && value >= 2 ? value : 2000;
+        }
+
+        function getPredLenSize() {
+            const value = parseInt(document.getElementById('pred-len').value, 10);
+            return Number.isFinite(value) && value >= 1 ? value : 120;
+        }
+
+        function getWindowSize() {
+            return getLookbackSize() + getPredLenSize();
+        }
+
         // Update start handle position
         function updateStartHandle(percentage) {
             const startHandle = document.getElementById('start-handle');
             const selection = document.getElementById('slider-selection');
             
-            // Fixed window size of 520 data points
-            const windowSize = 520;
+            const windowSize = getWindowSize();
             const totalRows = sliderData ? sliderData.totalRows : 1000;
-            const windowPercentage = windowSize / totalRows;
+            const windowPercentage = Math.min(1, windowSize / totalRows);
             
             // Ensure start handle doesn't cause window to exceed data range
             if (percentage + windowPercentage > 1) {
-                percentage = 1 - windowPercentage;
+                percentage = Math.max(0, 1 - windowPercentage);
             }
             
             startHandle.style.left = (percentage * 100) + '%';
             selection.style.left = (percentage * 100) + '%';
             selection.style.width = (windowPercentage * 100) + '%';
             
-            // Automatically adjust end handle position to maintain fixed window size
+            // Automatically adjust end handle position to maintain window size
             const endHandle = document.getElementById('end-handle');
             endHandle.style.left = ((percentage + windowPercentage) * 100) + '%';
         }
@@ -932,10 +1098,9 @@
             const endHandle = document.getElementById('end-handle');
             const selection = document.getElementById('slider-selection');
             
-            // Fixed window size of 520 data points
-            const windowSize = 520;
+            const windowSize = getWindowSize();
             const totalRows = sliderData ? sliderData.totalRows : 1000;
-            const windowPercentage = windowSize / totalRows;
+            const windowPercentage = Math.min(1, windowSize / totalRows);
             
             // Ensure end handle doesn't cause window to exceed data range
             if (percentage - windowPercentage < 0) {
@@ -946,7 +1111,7 @@
             selection.style.left = ((percentage - windowPercentage) * 100) + '%';
             selection.style.width = (windowPercentage * 100) + '%';
             
-            // Automatically adjust start handle position to maintain fixed window size
+            // Automatically adjust start handle position to maintain window size
             const startHandle = document.getElementById('start-handle');
             startHandle.style.left = ((percentage - windowPercentage) * 100) + '%';
         }
@@ -968,27 +1133,27 @@
             
             const startDate = new Date(startTime);
             const endDate = new Date(endTime);
+            const lookback = getLookbackSize();
+            const predLen = getPredLenSize();
             
             // Update display information
             document.getElementById('window-start').textContent = `Start: ${startDate.toLocaleDateString()}`;
             document.getElementById('window-end').textContent = `End: ${endDate.toLocaleDateString()}`;
-            
-            // Display fixed window size
-            document.getElementById('window-size').textContent = `Window Size: 400 + 120 = 520 data points (fixed)`;
-            
-            // Input field values remain fixed
-            document.getElementById('lookback').value = 400;
-            document.getElementById('pred-len').value = 120;
+            document.getElementById('window-size').textContent =
+                `Window Size: ${lookback} + ${predLen} = ${lookback + predLen} data points`;
         }
 
         // Update slider based on input fields
         function updateSliderFromInputs() {
             if (!sliderData) return;
             
-            // Fixed window size: 400 + 120 = 520 data points
-            const lookback = 400;
-            const predLen = 120;
-            const windowSize = lookback + predLen; // Fixed at 520
+            const lookback = getLookbackSize();
+            const predLen = getPredLenSize();
+            const windowSize = lookback + predLen;
+            
+            // Keep inputs clamped to sane ranges
+            document.getElementById('lookback').value = lookback;
+            document.getElementById('pred-len').value = predLen;
             
             // Calculate slider position
             const totalRows = sliderData.totalRows;
@@ -996,6 +1161,8 @@
             if (windowSize > totalRows) {
                 // If window size exceeds total data amount, show error
                 showStatus('error', `Insufficient data, need at least ${windowSize} data points, currently only ${totalRows} available`);
+                document.getElementById('window-size').textContent =
+                    `Window Size: ${lookback} + ${predLen} = ${windowSize} (need more data)`;
                 return;
             }
             
@@ -1191,6 +1358,9 @@
             // Load model button
             document.getElementById('load-model-btn').addEventListener('click', loadModel);
             
+            // Fetch market data button
+            document.getElementById('fetch-market-btn').addEventListener('click', fetchMarketData);
+
             // Load data button
             document.getElementById('load-data-btn').addEventListener('click', loadData);
             

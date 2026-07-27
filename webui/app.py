@@ -230,7 +230,7 @@ def create_prediction_chart(df, pred_df, lookback, pred_len, actual_df=None, his
         high=historical_df['high'],
         low=historical_df['low'],
         close=historical_df['close'],
-        name='Historical Data (400 data points)',
+        name=f'Historical Data ({lookback} data points)',
         increasing_line_color='#26A69A',
         decreasing_line_color='#EF5350'
     ))
@@ -258,7 +258,7 @@ def create_prediction_chart(df, pred_df, lookback, pred_len, actual_df=None, his
             high=pred_df['high'],
             low=pred_df['low'],
             close=pred_df['close'],
-            name='Prediction Data (120 data points)',
+            name=f'Prediction Data ({pred_len} data points)',
             increasing_line_color='#66BB6A',
             decreasing_line_color='#FF7043'
         ))
@@ -291,14 +291,14 @@ def create_prediction_chart(df, pred_df, lookback, pred_len, actual_df=None, his
             high=actual_df['high'],
             low=actual_df['low'],
             close=actual_df['close'],
-            name='Actual Data (120 data points)',
+            name=f'Actual Data ({len(actual_df)} data points)',
             increasing_line_color='#FF9800',
             decreasing_line_color='#F44336'
         ))
     
     # Update layout
     fig.update_layout(
-        title='Kronos Financial Prediction Results - 400 Historical Points + 120 Prediction Points vs 120 Actual Points',
+        title=f'Kronos Financial Prediction Results - {lookback} Historical Points + {pred_len} Prediction Points',
         xaxis_title='Time',
         yaxis_title='Price',
         template='plotly_white',
@@ -332,11 +332,107 @@ def index():
     """Home page"""
     return render_template('index.html')
 
+def detect_timeframe(df):
+    """Detect average candle spacing for display."""
+    if len(df) < 2:
+        return "Unknown"
+
+    time_diffs = []
+    for i in range(1, min(10, len(df))):
+        diff = df['timestamps'].iloc[i] - df['timestamps'].iloc[i - 1]
+        time_diffs.append(diff)
+
+    if not time_diffs:
+        return "Unknown"
+
+    avg_diff = sum(time_diffs, pd.Timedelta(0)) / len(time_diffs)
+
+    if avg_diff < pd.Timedelta(minutes=1):
+        return f"{avg_diff.total_seconds():.0f} seconds"
+    elif avg_diff < pd.Timedelta(hours=1):
+        return f"{avg_diff.total_seconds() / 60:.0f} minutes"
+    elif avg_diff < pd.Timedelta(days=1):
+        return f"{avg_diff.total_seconds() / 3600:.0f} hours"
+    else:
+        return f"{avg_diff.days} days"
+
+
+def build_data_info(df):
+    """Build standard data_info payload for the UI."""
+    return {
+        'rows': len(df),
+        'columns': list(df.columns),
+        'start_date': df['timestamps'].min().isoformat() if 'timestamps' in df.columns else 'N/A',
+        'end_date': df['timestamps'].max().isoformat() if 'timestamps' in df.columns else 'N/A',
+        'price_range': {
+            'min': float(df[['open', 'high', 'low', 'close']].min().min()),
+            'max': float(df[['open', 'high', 'low', 'close']].max().max())
+        },
+        'prediction_columns': ['open', 'high', 'low', 'close'] + (['volume'] if 'volume' in df.columns else []),
+        'timeframe': detect_timeframe(df)
+    }
+
+
 @app.route('/api/data-files')
 def get_data_files():
     """Get available data file list"""
     data_files = load_data_files()
     return jsonify(data_files)
+
+
+@app.route('/api/market-symbols')
+def get_market_symbols():
+    """Popular symbols for the fetch UI."""
+    try:
+        app_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'app')
+        if app_dir not in sys.path:
+            sys.path.insert(0, app_dir)
+        from fetch_binance_candles import POPULAR_SYMBOLS
+        symbols = POPULAR_SYMBOLS
+    except Exception:
+        symbols = ["BTCUSDT", "ETHUSDT", "BNBUSDT", "SOLUSDT", "XRPUSDT"]
+    return jsonify({
+        'symbols': symbols,
+        'intervals': ['1m', '5m', '15m', '1h', '4h', '1d'],
+        'periods': [
+            {'value': 'today', 'label': 'Today (UTC)'},
+            {'value': 'last_3', 'label': 'Last 3 days'},
+            {'value': 'last_7', 'label': 'Last 7 days'},
+            {'value': 'last_30', 'label': 'Last 30 days'},
+        ]
+    })
+
+
+@app.route('/api/fetch-market-data', methods=['POST'])
+def fetch_market_data():
+    """Download candles from Binance and save under data/."""
+    try:
+        app_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'app')
+        if app_dir not in sys.path:
+            sys.path.insert(0, app_dir)
+        from fetch_binance_candles import download_candles
+
+        data = request.get_json() or {}
+        symbol = (data.get('symbol') or 'BTCUSDT').strip().upper()
+        interval = data.get('interval') or '5m'
+        period = data.get('period') or 'last_7'
+
+        df, out_path = download_candles(symbol=symbol, interval=interval, period=period)
+        # Reload through the same path used by load_data so timestamps are datetime
+        loaded_df, error = load_data_file(str(out_path))
+        if error:
+            return jsonify({'error': error}), 400
+
+        return jsonify({
+            'success': True,
+            'file_path': str(out_path),
+            'file_name': os.path.basename(out_path),
+            'data_info': build_data_info(loaded_df),
+            'message': f'Downloaded {len(loaded_df)} candles for {symbol} ({interval}, {period})'
+        })
+    except Exception as e:
+        return jsonify({'error': f'Failed to fetch market data: {str(e)}'}), 500
+
 
 @app.route('/api/load-data', methods=['POST'])
 def load_data():
@@ -352,49 +448,9 @@ def load_data():
         if error:
             return jsonify({'error': error}), 400
         
-        # Detect data time frequency
-        def detect_timeframe(df):
-            if len(df) < 2:
-                return "Unknown"
-            
-            time_diffs = []
-            for i in range(1, min(10, len(df))):  # Check first 10 time differences
-                diff = df['timestamps'].iloc[i] - df['timestamps'].iloc[i-1]
-                time_diffs.append(diff)
-            
-            if not time_diffs:
-                return "Unknown"
-            
-            # Calculate average time difference
-            avg_diff = sum(time_diffs, pd.Timedelta(0)) / len(time_diffs)
-            
-            # Convert to readable format
-            if avg_diff < pd.Timedelta(minutes=1):
-                return f"{avg_diff.total_seconds():.0f} seconds"
-            elif avg_diff < pd.Timedelta(hours=1):
-                return f"{avg_diff.total_seconds() / 60:.0f} minutes"
-            elif avg_diff < pd.Timedelta(days=1):
-                return f"{avg_diff.total_seconds() / 3600:.0f} hours"
-            else:
-                return f"{avg_diff.days} days"
-        
-        # Return data information
-        data_info = {
-            'rows': len(df),
-            'columns': list(df.columns),
-            'start_date': df['timestamps'].min().isoformat() if 'timestamps' in df.columns else 'N/A',
-            'end_date': df['timestamps'].max().isoformat() if 'timestamps' in df.columns else 'N/A',
-            'price_range': {
-                'min': float(df[['open', 'high', 'low', 'close']].min().min()),
-                'max': float(df[['open', 'high', 'low', 'close']].max().max())
-            },
-            'prediction_columns': ['open', 'high', 'low', 'close'] + (['volume'] if 'volume' in df.columns else []),
-            'timeframe': detect_timeframe(df)
-        }
-        
         return jsonify({
             'success': True,
-            'data_info': data_info,
+            'data_info': build_data_info(df),
             'message': f'Successfully loaded data, total {len(df)} rows'
         })
         
@@ -407,7 +463,7 @@ def predict():
     try:
         data = request.get_json()
         file_path = data.get('file_path')
-        lookback = int(data.get('lookback', 400))
+        lookback = int(data.get('lookback', 2000))
         pred_len = int(data.get('pred_len', 120))
         
         # Get prediction quality parameters
@@ -497,8 +553,8 @@ def predict():
         
         if start_date:  # Custom time period
             # Fix logic: use data within selected window
-            # Prediction uses first 400 data points within selected window
-            # Actual data should be last 120 data points within selected window
+            # Prediction uses first lookback data points within selected window
+            # Actual data should be last pred_len data points within selected window
             start_dt = pd.to_datetime(start_date)
             
             # Find data starting from start_date
@@ -506,7 +562,7 @@ def predict():
             time_range_df = df[mask]
             
             if len(time_range_df) >= lookback + pred_len:
-                # Get last 120 data points within selected window as actual values
+                # Get actual data points within selected window for comparison
                 actual_df = time_range_df.iloc[lookback:lookback+pred_len]
                 
                 for i, (_, row) in enumerate(actual_df.iterrows()):
@@ -520,8 +576,8 @@ def predict():
                         'amount': float(row['amount']) if 'amount' in row else 0
                     })
         else:  # Latest data
-            # Prediction uses first 400 data points
-            # Actual data should be 120 data points after first 400 data points
+            # Prediction uses first lookback data points
+            # Actual data should be pred_len data points after the lookback window
             if len(df) >= lookback + pred_len:
                 actual_df = df.iloc[lookback:lookback+pred_len]
                 for i, (_, row) in enumerate(actual_df.iterrows()):
