@@ -6,7 +6,7 @@ import qlib
 from qlib.config import REG_CN
 from qlib.data import D
 from qlib.data.dataset.loader import QlibDataLoader
-from tqdm import trange
+from tqdm import tqdm, trange
 
 from config import Config
 
@@ -58,17 +58,16 @@ class QlibDataPreprocessor:
         data_df = QlibDataLoader(config=data_fields_qlib).load(
             self.config.instrument, real_start_time, real_end_time
         )
-        data_df = data_df.stack().unstack(level=1)  # Reshape for easier access.
 
-        symbol_list = list(data_df.columns)
-        for i in trange(len(symbol_list), desc="Processing Symbols"):
-            symbol = symbol_list[i]
-            symbol_df = data_df[symbol]
-
-            # Pivot the table to have features as columns and datetime as index.
-            symbol_df = symbol_df.reset_index().rename(columns={'level_1': 'field'})
-            symbol_df = pd.pivot(symbol_df, index='datetime', columns='field', values=symbol)
+        instrument_groups = data_df.groupby(level='instrument', sort=False)
+        for symbol, symbol_df in tqdm(
+            instrument_groups,
+            total=instrument_groups.ngroups,
+            desc="Processing Symbols",
+        ):
+            symbol_df = symbol_df.droplevel('instrument')
             symbol_df = symbol_df.rename(columns={f'${field}': field for field in self.data_fields})
+            symbol_df.columns.name = 'field'
 
             # Calculate amount and select final features.
             symbol_df['vol'] = symbol_df['volume']
