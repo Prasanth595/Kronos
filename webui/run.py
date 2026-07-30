@@ -65,7 +65,6 @@ def main():
     
     # Set environment variables
     os.environ['FLASK_APP'] = 'app.py'
-    os.environ['FLASK_ENV'] = 'development'
     
     # Start server
     try:
@@ -79,7 +78,8 @@ def main():
         webbrowser.open('http://localhost:7070')
         
         # Start Flask application
-        app.run(debug=True, host='0.0.0.0', port=7070)
+        debug_mode = os.environ.get('KRONOS_DEBUG', '0') == '1'
+        app.run(debug=debug_mode, host='0.0.0.0', port=7070)
         
     except Exception as e:
         print(f"❌ Startup failed: {e}")
