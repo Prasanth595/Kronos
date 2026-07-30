@@ -24,6 +24,9 @@ except ImportError:
 app = Flask(__name__)
 CORS(app)
 
+# Restrict file I/O to this data directory
+DATA_DIR = os.path.normpath(os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'data'))
+
 # Global variables to store models
 tokenizer = None
 model = None
@@ -59,29 +62,34 @@ AVAILABLE_MODELS = {
 
 def load_data_files():
     """Scan data directory and return available data files"""
-    data_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'data')
     data_files = []
     
-    if os.path.exists(data_dir):
-        for file in os.listdir(data_dir):
+    if os.path.exists(DATA_DIR):
+        for file in os.listdir(DATA_DIR):
             if file.endswith(('.csv', '.feather')):
-                file_path = os.path.join(data_dir, file)
+                file_path = os.path.join(DATA_DIR, file)
                 file_size = os.path.getsize(file_path)
                 data_files.append({
                     'name': file,
-                    'path': file_path,
+                    'path': file,
                     'size': f"{file_size / 1024:.1f} KB" if file_size < 1024*1024 else f"{file_size / (1024*1024):.1f} MB"
                 })
     
     return data_files
 
 def load_data_file(file_path):
-    """Load data file"""
+    """Load data file - restricted to DATA_DIR"""
     try:
-        if file_path.endswith('.csv'):
-            df = pd.read_csv(file_path)
-        elif file_path.endswith('.feather'):
-            df = pd.read_feather(file_path)
+        resolved = file_path if os.path.isabs(file_path) else os.path.join(DATA_DIR, file_path)
+        resolved = os.path.normpath(resolved)
+        if not resolved.startswith(DATA_DIR):
+            return None, "Access denied: file is outside the data directory"
+        if not os.path.isfile(resolved):
+            return None, "File not found"
+        if resolved.endswith('.csv'):
+            df = pd.read_csv(resolved)
+        elif resolved.endswith('.feather'):
+            df = pd.read_feather(resolved)
         else:
             return None, "Unsupported file format"
         
@@ -705,4 +713,5 @@ if __name__ == '__main__':
     else:
         print("Tip: Will use simulated data for demonstration")
     
-    app.run(debug=True, host='0.0.0.0', port=7070)
+    debug_mode = os.environ.get('KRONOS_DEBUG', '0') == '1'
+    app.run(debug=debug_mode, host='0.0.0.0', port=7070)
