@@ -4,7 +4,9 @@
   "open": [
     {"sleeve": "A", "strategy": "IBS", "symbol": "TQQQ", "signal_symbol": "QQQ", "signal_date": "2026-07-24",
      "entry_date": "2026-07-27", "entry_px": 66.07, "grade": 2.0,
-     "note": "IBS 0.17 at 7/24 close (QQQ 684.23), grade +2 GREEN (Fri+vol). 5DayLow also fired. Actual fill 7/27 open 66.06 + 2bp = 66.07 (gapped up from Fri close 64.00). Exit rule: QQQ IBS>0.70 close -> sell next open."}
+     "note": "IBS 0.17 at 7/24 close (QQQ 684.23), grade +2 GREEN (Fri+vol). 5DayLow also fired. Actual fill 7/27 open 66.06 + 2bp = 66.07 (gapped up from Fri close 64.00). Exit rule: QQQ IBS>0.70 close -> sell next open.",
+     "exit_signal_date": "2026-07-30",
+     "exit_signal_note": "QQQ IBS=0.867 at 7/30 close. EXIT next open 7/31. TQQQ mark 63.30."}
   ],
   "closed": [
     {"sleeve": "A", "strategy": "IBS", "symbol": "QQQ", "entry_date": "2026-07-02", "entry_px": 725.71,
