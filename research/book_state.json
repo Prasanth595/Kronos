@@ -1,13 +1,7 @@
 {
   "start_date": "2026-07-02",
   "note": "AGG-MAX weights locked 2026-07-13: A 55% equity MR via TQQQ, B 10% GLD/USO trend, C 20% crypto down-spike H2 (BTC/ETH/DOGE/LINK), D 15% cash/crisis. A-signals still computed on QQQ; executed in TQQQ.",
-  "open": [
-    {"sleeve": "A", "strategy": "IBS", "symbol": "TQQQ", "signal_symbol": "QQQ", "signal_date": "2026-07-24",
-     "entry_date": "2026-07-27", "entry_px": 66.07, "grade": 2.0,
-     "note": "IBS 0.17 at 7/24 close (QQQ 684.23), grade +2 GREEN (Fri+vol). 5DayLow also fired. Actual fill 7/27 open 66.06 + 2bp = 66.07 (gapped up from Fri close 64.00). Exit rule: QQQ IBS>0.70 close -> sell next open.",
-     "exit_signal_date": "2026-07-30",
-     "exit_signal_note": "QQQ IBS=0.867 at 7/30 close. EXIT next open 7/31. TQQQ mark 63.30."}
-  ],
+  "open": [],
   "closed": [
     {"sleeve": "A", "strategy": "IBS", "symbol": "QQQ", "entry_date": "2026-07-02", "entry_px": 725.71,
      "exit_date": "2026-07-09", "exit_px": 718.19, "ret": -0.01036, "grade": null,
@@ -15,6 +9,10 @@
     {"sleeve": "A", "strategy": "IBS", "symbol": "TQQQ", "signal_symbol": "QQQ",
      "entry_date": "2026-07-14", "entry_px": 75.22,
      "exit_date": "2026-07-22", "exit_px": 69.63, "ret": -0.0743, "grade": 2.0,
-     "note": "IBS 0.19 at 7/13 close, grade +2 GREEN. Exit: QQQ IBS=0.85 at 7/21 close -> sell 7/22 open 69.77 less 2bp slip = 69.63. Worst mark -10.2% (7/20). QQQ dropped 711->696 mid-hold, SMA20 crossed below SMA50 during trade."}
+     "note": "IBS 0.19 at 7/13 close, grade +2 GREEN. Exit: QQQ IBS=0.85 at 7/21 close -> sell 7/22 open 69.77 less 2bp slip = 69.63. Worst mark -10.2% (7/20). QQQ dropped 711->696 mid-hold, SMA20 crossed below SMA50 during trade."},
+    {"sleeve": "A", "strategy": "IBS", "symbol": "TQQQ", "signal_symbol": "QQQ",
+     "entry_date": "2026-07-27", "entry_px": 66.07,
+     "exit_date": "2026-07-31", "exit_px": 65.73, "ret": -0.0051, "grade": 2.0,
+     "note": "IBS 0.17 at 7/24 close, grade +2 GREEN (Fri+vol). 5DayLow also fired. Gapped up from Fri close 64.00 to 66.06 open + 2bp = 66.07. Exit: QQQ IBS=0.867 at 7/30 close -> sell 7/31 open 65.74 less 2bp = 65.73. Worst mark -12.6% (7/29, TQQQ 57.75). QQQ 684->662->688 during hold."}
   ]
 }
