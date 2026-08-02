@@ -2,6 +2,7 @@ import os
 import sys
 import json
 import time
+from pathlib import Path
 from time import gmtime, strftime
 import torch.distributed as dist
 import torch
@@ -11,8 +12,9 @@ from torch.nn.parallel import DistributedDataParallel as DDP
 
 import comet_ml
 
-# Ensure project root is in path
-sys.path.append('../')
+# Anchor the project root on this file's location so the script can be launched
+# from any working directory (e.g. `python finetune/train_predictor.py`).
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from config import Config
 from dataset import QlibDataset
 from model.kronos import KronosTokenizer, Kronos
@@ -104,9 +106,11 @@ def train_model(model, tokenizer, device, config, save_dir, logger, rank, world_
             token_in = [token_seq_0[:, :-1], token_seq_1[:, :-1]]
             token_out = [token_seq_0[:, 1:], token_seq_1[:, 1:]]
 
-            # Forward pass and loss calculation
+            # Forward pass and loss calculation. compute_loss is called through
+            # the (possibly DDP-wrapped) module so gradients stay inside the DDP
+            # wrapper instead of poking into model.module directly.
             logits = model(token_in[0], token_in[1], batch_x_stamp[:, :-1, :])
-            loss, s1_loss, s2_loss = model.module.head.compute_loss(logits[0], logits[1], token_out[0], token_out[1])
+            loss, s1_loss, s2_loss = model.compute_loss(logits[0], logits[1], token_out[0], token_out[1])
 
             # Backward pass and optimization
             optimizer.zero_grad()
@@ -144,8 +148,14 @@ def train_model(model, tokenizer, device, config, save_dir, logger, rank, world_
                 token_in = [token_seq_0[:, :-1], token_seq_1[:, :-1]]
                 token_out = [token_seq_0[:, 1:], token_seq_1[:, 1:]]
 
-                logits = model(token_in[0], token_in[1], batch_x_stamp[:, :-1, :])
-                val_loss, _, _ = model.module.head.compute_loss(logits[0], logits[1], token_out[0], token_out[1])
+                # Teacher-forcing during validation makes the reported loss
+                # deterministic (the s1 path is otherwise stochastic via
+                # torch.multinomial sampling in the forward pass).
+                logits = model(
+                    token_in[0], token_in[1], batch_x_stamp[:, :-1, :],
+                    use_teacher_forcing=True, s1_targets=token_out[0]
+                )
+                val_loss, _, _ = model.compute_loss(logits[0], logits[1], token_out[0], token_out[1])
 
                 tot_val_loss_sum_rank += val_loss.item()
                 val_batches_processed_rank += 1
@@ -196,7 +206,7 @@ def main(config: dict):
             'save_directory': save_dir,
             'world_size': world_size,
         }
-        if config['use_comet']:
+        if config['use_comet'] and config['comet_config'].get('api_key'):
             comet_logger = comet_ml.Experiment(
                 api_key=config['comet_config']['api_key'],
                 project_name=config['comet_config']['project_name'],
@@ -206,10 +216,15 @@ def main(config: dict):
             comet_logger.set_name(config['comet_name'])
             comet_logger.log_parameters(config)
             print("Comet Logger Initialized.")
+        elif rank == 0:
+            print("Comet logging disabled (use_comet=False or no COMET_API_KEY set).")
 
     dist.barrier()
 
     # Model Initialization
+    # NOTE: The tokenizer stays frozen and is only ever used under torch.no_grad()
+    # in train_model(). If it is ever unfrozen for end-to-end fine-tuning, the
+    # dropout inside its encoder would corrupt the produced token IDs.
     tokenizer = KronosTokenizer.from_pretrained(config['finetuned_tokenizer_path'])
     tokenizer.eval().to(device)
 
