@@ -3,11 +3,20 @@ import os
 import numpy as np
 import pandas as pd
 import torch
+import torch.nn as nn
+import torch.nn.functional as F  # noqa: N812
 from huggingface_hub import PyTorchModelHubMixin
-
 from tqdm import trange
 
-from .module import *
+from .module import (
+    BSQuantizer,
+    DependencyAwareLayer,
+    DualHead,
+    HierarchicalEmbedding,
+    RMSNorm,
+    TemporalEmbedding,
+    TransformerBlock,
+)
 
 
 class KronosTokenizer(nn.Module, PyTorchModelHubMixin):
@@ -57,11 +66,16 @@ class KronosTokenizer(nn.Module, PyTorchModelHubMixin):
         self.head = nn.Linear(self.d_model, self.d_in)
 
         # Encoder Transformer Blocks
+        # NOTE: n_enc_layers - 1 TransformerBlocks are instantiated. The linear
+        # input projection (self.embed) plays the role of the "first" transform
+        # and the quant embedding (self.quant_embed) that of the "last", so the
+        # effective stack depth matches the paper's reported architecture.
         self.encoder = nn.ModuleList([
             TransformerBlock(self.d_model, self.n_heads, self.ff_dim, self.ffn_dropout_p, self.attn_dropout_p, self.resid_dropout_p)
             for _ in range(self.enc_layers - 1)
         ])
-        # Decoder Transformer Blocks
+        # Decoder Transformer Blocks (same reasoning as encoder; the
+        # post_quant_embed projection and self.head bookend the block stack).
         self.decoder = nn.ModuleList([
             TransformerBlock(self.d_model, self.n_heads, self.ff_dim, self.ffn_dropout_p, self.attn_dropout_p, self.resid_dropout_p)
             for _ in range(self.dec_layers - 1)
@@ -85,6 +99,14 @@ class KronosTokenizer(nn.Module, PyTorchModelHubMixin):
                 - torch.Tensor: bsq_loss - Loss from the BSQuantizer.
                 - torch.Tensor: quantized - Quantized representation from BSQuantizer.
                 - torch.Tensor: z_indices - Indices from the BSQuantizer.
+
+        Note:
+            self.decoder is a single ModuleList that is applied twice in one
+            forward pass (once for the coarse s1 reconstruction, once for the
+            full codebook). This is intentional weight sharing: both
+            reconstruction objectives back-propagate into the same decoder
+            weights. Because TransformerBlock uses RMSNorm, no running
+            statistics are corrupted by the double pass.
         """
         z = self.embed(x)
 
@@ -383,9 +405,8 @@ def top_k_top_p_filtering(
 
 def sample_from_logits(logits, temperature=1.0, top_k=None, top_p=None, sample_logits=True):
     logits = logits / temperature
-    if top_k is not None or top_p is not None:
-        if top_k > 0 or top_p < 1.0:
-            logits = top_k_top_p_filtering(logits, top_k=top_k, top_p=top_p)
+    if (top_k is not None and top_k > 0) or (top_p is not None and top_p < 1.0):
+        logits = top_k_top_p_filtering(logits, top_k=top_k, top_p=top_p)
 
     probs = F.softmax(logits, dim=-1)
 
@@ -397,7 +418,7 @@ def sample_from_logits(logits, temperature=1.0, top_k=None, top_p=None, sample_l
     return x
 
 
-def auto_regressive_inference(tokenizer, model, x, x_stamp, y_stamp, max_context, pred_len, clip=5, T=1.0, top_k=0, top_p=0.99, sample_count=5, verbose=False, padding_mask=None):
+def auto_regressive_inference(tokenizer, model, x, x_stamp, y_stamp, max_context, pred_len, clip=5, T=1.0, top_k=0, top_p=0.99, sample_count=5, verbose=False, padding_mask=None):  # noqa: N803
     """
     Autoregressive inference over the Kronos token space.
 
@@ -456,10 +477,7 @@ def auto_regressive_inference(tokenizer, model, x, x_stamp, y_stamp, max_context
             if mask_buffer is not None:
                 mask_buffer[:, :buffer_len] = padding_mask[:, start_idx:start_idx + buffer_len]
 
-        if verbose:
-            ran = trange
-        else:
-            ran = range
+        ran = trange if verbose else range
         for i in ran(pred_len):
             current_seq_len = initial_seq_len + i
             window_len = min(current_seq_len, max_context)
@@ -568,16 +586,17 @@ class KronosPredictor:
         self.model = self.model.to(self.device)
 
     @staticmethod
-    def _floored_std(x_std):
+    def _floored_std(x_std, eps=1e-5, floor=1e-3):
         """Floor the per-feature standard deviation to avoid blow-ups on flat windows.
 
         A flat lookback window yields x_std ~ 0; dividing by an arbitrarily small
-        epsilon (1e-5) amplifies any residual noise by up to 1e5x. A fixed floor
-        keeps normalization stable while being numerically inert for real data.
+        epsilon (1e-5) alone amplifies any residual noise by up to 1e5x. The small
+        additive epsilon is kept (it is part of the pretrained normalization) and
+        a hard floor guarantees flat windows stay numerically stable.
         """
-        return np.maximum(x_std, 1e-3)
+        return np.maximum(x_std + eps, floor)
 
-    def generate(self, x, x_stamp, y_stamp, pred_len, T, top_k, top_p, sample_count, verbose, padding_mask=None):
+    def generate(self, x, x_stamp, y_stamp, pred_len, T, top_k, top_p, sample_count, verbose, padding_mask=None):  # noqa: N803
 
         x_tensor = torch.from_numpy(np.array(x).astype(np.float32)).to(self.device)
         x_stamp_tensor = torch.from_numpy(np.array(x_stamp).astype(np.float32)).to(self.device)
@@ -592,7 +611,7 @@ class KronosPredictor:
         preds = preds[:, -pred_len:, :]
         return preds
 
-    def predict(self, df, x_timestamp, y_timestamp, pred_len, T=1.0, top_k=0, top_p=0.9, sample_count=1, verbose=True):
+    def predict(self, df, x_timestamp, y_timestamp, pred_len, T=1.0, top_k=0, top_p=0.9, sample_count=1, verbose=True):  # noqa: N803
 
         if not isinstance(df, pd.DataFrame):
             raise ValueError("Input must be a pandas DataFrame.")
@@ -636,7 +655,7 @@ class KronosPredictor:
         return pred_df
 
 
-    def predict_batch(self, df_list, x_timestamp_list, y_timestamp_list, pred_len, T=1.0, top_k=0, top_p=0.9, sample_count=1, verbose=True):
+    def predict_batch(self, df_list, x_timestamp_list, y_timestamp_list, pred_len, T=1.0, top_k=0, top_p=0.9, sample_count=1, verbose=True):  # noqa: N803
         """
         Perform parallel (batch) prediction on multiple time series.
 
@@ -746,7 +765,7 @@ class KronosPredictor:
         y_stamp_batch = np.stack(y_stamp_list, axis=0).astype(np.float32)  # (B, pred_len, time_feat)
 
         preds = self.generate(x_batch, x_stamp_batch, y_stamp_batch, pred_len, T, top_k, top_p, sample_count, verbose, padding_mask=pad_mask)
-        # preds: (B, pred_len, feat)
+        # preds has shape (B, pred_len, feat)
 
         pred_dfs = []
         for i in range(num_series):

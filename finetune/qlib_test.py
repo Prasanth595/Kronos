@@ -1,24 +1,22 @@
-import os
-import sys
 import argparse
+import os
 import pickle
+import sys
 from collections import defaultdict
 from pathlib import Path
 
 import numpy as np
 import pandas as pd
-import torch
-from torch.utils.data import Dataset, DataLoader
-from tqdm import trange, tqdm
-from matplotlib import pyplot as plt
-
 import qlib
+import torch
+from matplotlib import pyplot as plt
+from qlib.backtest import backtest, executor
 from qlib.config import REG_CN, REG_US
-from qlib.backtest import backtest, executor, CommonInfrastructure
 from qlib.contrib.evaluate import risk_analysis
 from qlib.contrib.strategy import TopkDropoutStrategy
-from qlib.utils import flatten_dict
 from qlib.utils.time import Freq
+from torch.utils.data import DataLoader, Dataset
+from tqdm import tqdm
 
 # Anchor the project root on this file's location so the script can be launched
 # from any working directory (e.g. `python finetune/qlib_test.py`).
@@ -94,7 +92,7 @@ class QlibTestDataset(Dataset):
 
         # Instance-level normalization, consistent with training
         x_mean, x_std = np.mean(x, axis=0), np.std(x, axis=0)
-        x_std = np.maximum(x_std, 1e-3)  # Floor to avoid near-zero denominators on flat windows
+        x_std = np.maximum(x_std + 1e-5, 1e-3)  # Floor near-zero denominators on flat windows
         x = (x - x_mean) / x_std
         x = np.clip(x, -self.config.clip, self.config.clip)
 
@@ -153,7 +151,7 @@ class QlibBacktest:
         }
 
         portfolio_metric_dict, _ = backtest(strategy=strategy, **backtest_config)
-        analysis_freq = "{0}{1}".format(*Freq.parse(self.config.backtest_freq))
+        analysis_freq = "{}{}".format(*Freq.parse(self.config.backtest_freq))
         report, _ = portfolio_metric_dict.get(analysis_freq)
 
         # --- Analysis and Reporting ---
@@ -239,7 +237,7 @@ def collate_fn_for_inference(batch):
         A single tuple containing the batched data.
     """
     # Unzip the list of samples into separate lists for each data type
-    x, x_stamp, y_stamp, symbols, timestamps = zip(*batch)
+    x, x_stamp, y_stamp, symbols, timestamps = zip(*batch, strict=True)
 
     # Stack the tensors to create a batch
     x_batch = torch.stack(x, dim=0)
@@ -250,13 +248,16 @@ def collate_fn_for_inference(batch):
     return x_batch, x_stamp_batch, y_stamp_batch, list(symbols), list(timestamps)
 
 
-def generate_predictions(config: dict, test_data: dict) -> dict[str, pd.DataFrame]:
+def generate_predictions(config: dict, test_data: dict, base_config: Config = None) -> dict[str, pd.DataFrame]:
     """
     Runs inference on the test dataset to generate prediction signals.
 
     Args:
         config (dict): A dictionary containing inference parameters.
         test_data (dict): The raw test data loaded from a pickle file.
+        base_config (Config, optional): The base Config instance whose data
+            schema (feature/time feature lists, window sizes) is used to build
+            the inference dataset. Falls back to a fresh Config() if omitted.
 
     Returns:
         A dictionary where keys are signal types (e.g., 'mean', 'last') and
@@ -265,13 +266,14 @@ def generate_predictions(config: dict, test_data: dict) -> dict[str, pd.DataFram
     tokenizer, model = load_models(config)
     device = torch.device(config['device'])
 
-    # Use the Dataset and DataLoader for efficient batching and processing
-    dataset = QlibTestDataset(data=test_data, config=Config())
+    # Use the caller's base_config so user overrides (feature_list, windows,
+    # clipping, ...) are respected instead of silently constructing defaults.
+    dataset = QlibTestDataset(data=test_data, config=base_config if base_config is not None else Config())
     loader = DataLoader(
         dataset,
         batch_size=config['batch_size'] // config['sample_count'],
         shuffle=False,
-        num_workers=os.cpu_count() // 2,
+        num_workers=min(config.get('num_workers', 4), 8),
         collate_fn=collate_fn_for_inference
     )
 
@@ -338,6 +340,7 @@ def main():
         'top_p': base_config.inference_top_p,
         'sample_count': base_config.inference_sample_count,
         'batch_size': base_config.backtest_batch_size,
+        'num_workers': base_config.inference_num_workers,
     }
 
     print("--- Running with Configuration ---")
@@ -352,7 +355,7 @@ def main():
         test_data = pickle.load(f)
     print(test_data)
     # --- 3. Generate Predictions ---
-    model_preds = generate_predictions(run_config, test_data)
+    model_preds = generate_predictions(run_config, test_data, base_config)
 
     # --- 4. Save Predictions ---
     save_dir = os.path.join(run_config['result_save_path'], run_config['result_name'])

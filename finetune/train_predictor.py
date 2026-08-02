@@ -1,31 +1,26 @@
+import json
 import os
 import sys
-import json
 import time
 from pathlib import Path
 from time import gmtime, strftime
-import torch.distributed as dist
-import torch
-from torch.utils.data import DataLoader
-from torch.utils.data.distributed import DistributedSampler
-from torch.nn.parallel import DistributedDataParallel as DDP
 
 import comet_ml
+import torch
+import torch.distributed as dist
+from torch.nn.parallel import DistributedDataParallel as DDP  # noqa: N817
+from torch.utils.data import DataLoader
+from torch.utils.data.distributed import DistributedSampler
 
 # Anchor the project root on this file's location so the script can be launched
 # from any working directory (e.g. `python finetune/train_predictor.py`).
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from config import Config
 from dataset import QlibDataset
-from model.kronos import KronosTokenizer, Kronos
+from model.kronos import Kronos, KronosTokenizer
+
 # Import shared utilities
-from utils.training_utils import (
-    setup_ddp,
-    cleanup_ddp,
-    set_seed,
-    get_model_size,
-    format_time
-)
+from utils.training_utils import cleanup_ddp, format_time, get_model_size, set_seed, setup_ddp
 
 
 def create_dataloaders(config: dict, rank: int, world_size: int):
@@ -245,7 +240,8 @@ def main(config: dict):
         with open(os.path.join(save_dir, 'summary.json'), 'w') as f:
             json.dump(master_summary, f, indent=4)
         print('Training finished. Summary file saved.')
-        if comet_logger: comet_logger.end()
+        if comet_logger:
+            comet_logger.end()
 
     cleanup_ddp()
 
