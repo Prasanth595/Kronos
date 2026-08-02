@@ -1,5 +1,6 @@
 import os
 
+
 class Config:
     """
     Configuration class for the entire project.
@@ -51,8 +52,8 @@ class Config:
 
         # Number of samples to draw for one "epoch" of training/validation.
         # This is useful for large datasets where a true epoch is too long.
-        self.n_train_iter = 2000 * self.batch_size
-        self.n_val_iter = 400 * self.batch_size
+        self.n_train_samples_per_epoch = 2000 * self.batch_size
+        self.n_val_samples_per_epoch = 400 * self.batch_size
 
         # Learning rates for different model components.
         self.tokenizer_learning_rate = 2e-4
@@ -74,11 +75,12 @@ class Config:
         # =================================================================
         self.use_comet = True # Set to False if you don't want to use Comet ML
         self.comet_config = {
-            # It is highly recommended to load secrets from environment variables
-            # for security purposes. Example: os.getenv("COMET_API_KEY")
-            "api_key": "YOUR_COMET_API_KEY",
+            # Secrets are loaded from environment variables so they are never
+            # committed to the repository. Comet is skipped entirely when the
+            # API key is missing.
+            "api_key": os.getenv("COMET_API_KEY", ""),
             "project_name": "Kronos-Finetune-Demo",
-            "workspace": "your_comet_workspace" # TODO: Change to your Comet ML workspace name
+            "workspace": os.getenv("COMET_WORKSPACE", "your_comet_workspace")  # TODO: Change to your Comet ML workspace name
         }
         self.comet_tag = 'finetune_demo'
         self.comet_name = 'finetune_demo'
@@ -117,7 +119,35 @@ class Config:
         self.inference_top_k = 0
         self.inference_sample_count = 5
         self.backtest_batch_size = 1000
+        self.inference_num_workers = 4  # Upper bound for inference DataLoader workers.
         self.backtest_benchmark = self._set_benchmark(self.instrument)
+
+        # Market profile used by the backtest exchange simulator. This is what
+        # turns the "general" framework into a specific market:
+        #   'cn'      - Chinese A-share: T+1, daily open dealing, ~10/15bp costs, 9.5% limit-up/down.
+        #   'generic' - Neutral profile: no price limits, close dealing, negligible costs
+        #               (suited to forex/crypto/tick-style evaluation).
+        self.market_profile = 'cn'
+        self.backtest_freq = "day"
+        self.backtest_time_per_step = "day"
+        self.backtest_account = 100_000_000
+        self.backtest_exchange_kwargs = self._set_exchange_kwargs(self.market_profile, self.backtest_freq)
+        # Qlib provider region used by qlib.init(): 'cn' or 'us'.
+        self.qlib_region = 'cn'
+
+    def _set_exchange_kwargs(self, market_profile: str, freq: str) -> dict:
+        if market_profile == 'cn':
+            return {
+                "freq": freq, "limit_threshold": 0.095, "deal_price": "open",
+                "open_cost": 0.001, "close_cost": 0.0015, "min_cost": 5,
+            }
+        elif market_profile == 'generic':
+            return {
+                "freq": freq, "limit_threshold": None, "deal_price": "close",
+                "open_cost": 0.0001, "close_cost": 0.0001, "min_cost": 0,
+            }
+        else:
+            raise ValueError(f"Unknown market_profile: {market_profile}")
 
     def _set_benchmark(self, instrument):
         dt_benchmark = {

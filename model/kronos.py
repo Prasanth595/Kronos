@@ -1,13 +1,22 @@
+import os
+
 import numpy as np
 import pandas as pd
 import torch
+import torch.nn as nn
+import torch.nn.functional as F  # noqa: N812
 from huggingface_hub import PyTorchModelHubMixin
-import sys
-
 from tqdm import trange
 
-sys.path.append("../")
-from model.module import *
+from .module import (
+    BSQuantizer,
+    DependencyAwareLayer,
+    DualHead,
+    HierarchicalEmbedding,
+    RMSNorm,
+    TemporalEmbedding,
+    TransformerBlock,
+)
 
 
 class KronosTokenizer(nn.Module, PyTorchModelHubMixin):
@@ -57,11 +66,16 @@ class KronosTokenizer(nn.Module, PyTorchModelHubMixin):
         self.head = nn.Linear(self.d_model, self.d_in)
 
         # Encoder Transformer Blocks
+        # NOTE: n_enc_layers - 1 TransformerBlocks are instantiated. The linear
+        # input projection (self.embed) plays the role of the "first" transform
+        # and the quant embedding (self.quant_embed) that of the "last", so the
+        # effective stack depth matches the paper's reported architecture.
         self.encoder = nn.ModuleList([
             TransformerBlock(self.d_model, self.n_heads, self.ff_dim, self.ffn_dropout_p, self.attn_dropout_p, self.resid_dropout_p)
             for _ in range(self.enc_layers - 1)
         ])
-        # Decoder Transformer Blocks
+        # Decoder Transformer Blocks (same reasoning as encoder; the
+        # post_quant_embed projection and self.head bookend the block stack).
         self.decoder = nn.ModuleList([
             TransformerBlock(self.d_model, self.n_heads, self.ff_dim, self.ffn_dropout_p, self.attn_dropout_p, self.resid_dropout_p)
             for _ in range(self.dec_layers - 1)
@@ -85,6 +99,14 @@ class KronosTokenizer(nn.Module, PyTorchModelHubMixin):
                 - torch.Tensor: bsq_loss - Loss from the BSQuantizer.
                 - torch.Tensor: quantized - Quantized representation from BSQuantizer.
                 - torch.Tensor: z_indices - Indices from the BSQuantizer.
+
+        Note:
+            self.decoder is a single ModuleList that is applied twice in one
+            forward pass (once for the coarse s1 reconstruction, once for the
+            full codebook). This is intentional weight sharing: both
+            reconstruction objectives back-propagate into the same decoder
+            weights. Because TransformerBlock uses RMSNorm, no running
+            statistics are corrupted by the double pass.
         """
         z = self.embed(x)
 
@@ -158,13 +180,15 @@ class KronosTokenizer(nn.Module, PyTorchModelHubMixin):
         bsq_loss, quantized, z_indices = self.tokenizer(z, half=half, collect_metrics=False)
         return z_indices
 
-    def decode(self, x, half=False):
+    def decode(self, x, half=False, padding_mask=None):
         """
         Decodes quantized indices back to the input data space.
 
         Args:
             x (torch.Tensor): Quantized indices tensor.
             half (bool, optional): Whether the indices were generated with half quantization. Defaults to False.
+            padding_mask (torch.Tensor, optional): Mask of shape [batch_size, seq_len] where 1 marks
+                                                   padding positions that attention must ignore. Defaults to None.
 
         Returns:
             torch.Tensor: Reconstructed output tensor of shape (batch_size, seq_len, d_in).
@@ -172,7 +196,7 @@ class KronosTokenizer(nn.Module, PyTorchModelHubMixin):
         quantized = self.indices_to_bits(x, half)
         z = self.post_quant_embed(quantized)
         for layer in self.decoder:
-            z = layer(z)
+            z = layer(z, key_padding_mask=padding_mask)
         z = self.head(z)
         return z
 
@@ -327,6 +351,15 @@ class Kronos(nn.Module, PyTorchModelHubMixin):
         x2 = self.dep_layer(context, sibling_embed, key_padding_mask=padding_mask)
         return self.head.cond_forward(x2)
 
+    def compute_loss(self, s1_logits, s2_logits, s1_targets, s2_targets, padding_mask=None):
+        """Computes the combined S1+S2 cross-entropy loss.
+
+        Exposed on the module itself (not just ``self.head``) so that
+        DistributedDataParallel-wrapped models can call it without poking
+        through ``model.module`` and bypassing the DDP wrapper.
+        """
+        return self.head.compute_loss(s1_logits, s2_logits, s1_targets, s2_targets, padding_mask)
+
 
 def top_k_top_p_filtering(
         logits,
@@ -349,7 +382,6 @@ def top_k_top_p_filtering(
         # Remove all tokens with a probability less than the last token of the top-k
         indices_to_remove = logits < torch.topk(logits, top_k)[0][..., -1, None]
         logits[indices_to_remove] = filter_value
-        return logits
 
     if top_p < 1.0:
         sorted_logits, sorted_indices = torch.sort(logits, descending=True)
@@ -367,14 +399,14 @@ def top_k_top_p_filtering(
         # scatter sorted tensors to original indexing
         indices_to_remove = sorted_indices_to_remove.scatter(1, sorted_indices, sorted_indices_to_remove)
         logits[indices_to_remove] = filter_value
-        return logits
+
+    return logits
 
 
 def sample_from_logits(logits, temperature=1.0, top_k=None, top_p=None, sample_logits=True):
     logits = logits / temperature
-    if top_k is not None or top_p is not None:
-        if top_k > 0 or top_p < 1.0:
-            logits = top_k_top_p_filtering(logits, top_k=top_k, top_p=top_p)
+    if (top_k is not None and top_k > 0) or (top_p is not None and top_p < 1.0):
+        logits = top_k_top_p_filtering(logits, top_k=top_k, top_p=top_p)
 
     probs = F.softmax(logits, dim=-1)
 
@@ -386,17 +418,44 @@ def sample_from_logits(logits, temperature=1.0, top_k=None, top_p=None, sample_l
     return x
 
 
-def auto_regressive_inference(tokenizer, model, x, x_stamp, y_stamp, max_context, pred_len, clip=5, T=1.0, top_k=0, top_p=0.99, sample_count=5, verbose=False):
+def auto_regressive_inference(tokenizer, model, x, x_stamp, y_stamp, max_context, pred_len, clip=5, T=1.0, top_k=0, top_p=0.99, sample_count=5, verbose=False, padding_mask=None):  # noqa: N803
+    """
+    Autoregressive inference over the Kronos token space.
+
+    Args:
+        tokenizer (KronosTokenizer): Frozen tokenizer.
+        model (Kronos): Predictor model.
+        x (torch.Tensor): Normalized input of shape [batch_size, seq_len, d_in].
+        x_stamp (torch.Tensor): Historical time features [batch_size, seq_len, time_feat].
+        y_stamp (torch.Tensor): Future time features [batch_size, pred_len, time_feat].
+        max_context (int): Maximum number of tokens fed to the transformer.
+        pred_len (int): Number of steps to generate.
+        clip (float): Value clipping bound for inputs.
+        T (float): Sampling temperature.
+        top_k (int): Top-k filtering threshold (applied together with top_p when both set).
+        top_p (float): Nucleus (top-p) filtering threshold.
+        sample_count (int): Number of parallel samples per series (averaged at the end).
+        verbose (bool): Whether to display a progress bar.
+        padding_mask (torch.Tensor, optional): Mask of shape [batch_size, seq_len] where 1 marks
+            left-padded positions that attention must ignore. Enables batching series of unequal length.
+
+    Returns:
+        np.ndarray: Predictions of shape [batch_size, pred_len, d_in].
+    """
     with torch.no_grad():
         x = torch.clip(x, -clip, clip)
 
         device = x.device
+        if padding_mask is not None:
+            padding_mask = (padding_mask != 0).to(device)
         x = x.unsqueeze(1).repeat(1, sample_count, 1, 1).reshape(-1, x.size(1), x.size(2)).to(device)
         x_stamp = x_stamp.unsqueeze(1).repeat(1, sample_count, 1, 1).reshape(-1, x_stamp.size(1), x_stamp.size(2)).to(device)
         y_stamp = y_stamp.unsqueeze(1).repeat(1, sample_count, 1, 1).reshape(-1, y_stamp.size(1), y_stamp.size(2)).to(device)
+        if padding_mask is not None:
+            padding_mask = padding_mask.unsqueeze(1).repeat(1, sample_count, 1).reshape(-1, padding_mask.size(1)).to(device)
 
         x_token = tokenizer.encode(x, half=True)
-        
+
         initial_seq_len = x.size(1)
         batch_size = x_token[0].size(0)
         total_seq_len = initial_seq_len + pred_len
@@ -407,16 +466,18 @@ def auto_regressive_inference(tokenizer, model, x, x_stamp, y_stamp, max_context
 
         pre_buffer = x_token[0].new_zeros(batch_size, max_context)
         post_buffer = x_token[1].new_zeros(batch_size, max_context)
+        mask_buffer = None
+        if padding_mask is not None:
+            mask_buffer = padding_mask.new_zeros(batch_size, max_context, dtype=torch.bool)
         buffer_len = min(initial_seq_len, max_context)
         if buffer_len > 0:
             start_idx = max(0, initial_seq_len - max_context)
             pre_buffer[:, :buffer_len] = x_token[0][:, start_idx:start_idx + buffer_len]
             post_buffer[:, :buffer_len] = x_token[1][:, start_idx:start_idx + buffer_len]
+            if mask_buffer is not None:
+                mask_buffer[:, :buffer_len] = padding_mask[:, start_idx:start_idx + buffer_len]
 
-        if verbose:
-            ran = trange
-        else:
-            ran = range
+        ran = trange if verbose else range
         for i in ran(pred_len):
             current_seq_len = initial_seq_len + i
             window_len = min(current_seq_len, max_context)
@@ -426,18 +487,20 @@ def auto_regressive_inference(tokenizer, model, x, x_stamp, y_stamp, max_context
                     pre_buffer[:, :window_len],
                     post_buffer[:, :window_len]
                 ]
+                mask = mask_buffer[:, :window_len] if mask_buffer is not None else None
             else:
                 input_tokens = [pre_buffer, post_buffer]
+                mask = mask_buffer if mask_buffer is not None else None
 
             context_end = current_seq_len
             context_start = max(0, context_end - max_context)
             current_stamp = full_stamp[:, context_start:context_end, :].contiguous()
 
-            s1_logits, context = model.decode_s1(input_tokens[0], input_tokens[1], current_stamp)
+            s1_logits, context = model.decode_s1(input_tokens[0], input_tokens[1], current_stamp, padding_mask=mask)
             s1_logits = s1_logits[:, -1, :]
             sample_pre = sample_from_logits(s1_logits, temperature=T, top_k=top_k, top_p=top_p, sample_logits=True)
 
-            s2_logits = model.decode_s2(context, sample_pre)
+            s2_logits = model.decode_s2(context, sample_pre, padding_mask=mask)
             s2_logits = s2_logits[:, -1, :]
             sample_post = sample_from_logits(s2_logits, temperature=T, top_k=top_k, top_p=top_p, sample_logits=True)
 
@@ -447,11 +510,16 @@ def auto_regressive_inference(tokenizer, model, x, x_stamp, y_stamp, max_context
             if current_seq_len < max_context:
                 pre_buffer[:, current_seq_len] = sample_pre.squeeze(-1)
                 post_buffer[:, current_seq_len] = sample_post.squeeze(-1)
+                if mask_buffer is not None:
+                    mask_buffer[:, current_seq_len] = False
             else:
-                pre_buffer.copy_(torch.roll(pre_buffer, shifts=-1, dims=1))
-                post_buffer.copy_(torch.roll(post_buffer, shifts=-1, dims=1))
+                pre_buffer[:, :-1] = pre_buffer[:, 1:].clone()
+                post_buffer[:, :-1] = post_buffer[:, 1:].clone()
                 pre_buffer[:, -1] = sample_pre.squeeze(-1)
                 post_buffer[:, -1] = sample_post.squeeze(-1)
+                if mask_buffer is not None:
+                    mask_buffer[:, :-1] = mask_buffer[:, 1:].clone()
+                    mask_buffer[:, -1] = False
 
         full_pre = torch.cat([x_token[0], generated_pre], dim=1)
         full_post = torch.cat([x_token[1], generated_post], dim=1)
@@ -461,7 +529,14 @@ def auto_regressive_inference(tokenizer, model, x, x_stamp, y_stamp, max_context
             full_pre[:, context_start:total_seq_len].contiguous(),
             full_post[:, context_start:total_seq_len].contiguous()
         ]
-        z = tokenizer.decode(input_tokens, half=True)
+        if padding_mask is not None:
+            full_seq_mask = torch.cat(
+                [padding_mask, padding_mask.new_zeros(padding_mask.size(0), pred_len, dtype=torch.bool)], dim=1
+            )
+            decode_mask = full_seq_mask[:, context_start:total_seq_len].contiguous()
+        else:
+            decode_mask = None
+        z = tokenizer.decode(input_tokens, half=True, padding_mask=decode_mask)
         z = z.reshape(-1, sample_count, z.size(1), z.size(2))
         preds = z.cpu().numpy()
         preds = np.mean(preds, axis=1)
@@ -490,33 +565,53 @@ class KronosPredictor:
         self.vol_col = 'volume'
         self.amt_vol = 'amount'
         self.time_cols = ['minute', 'hour', 'weekday', 'day', 'month']
-        
-        # Auto-detect device if not specified
+
+        # Auto-detect device if not specified. The KRONOS_DEVICE environment
+        # variable overrides auto-detection so operators can pin a specific GPU.
         if device is None:
-            if torch.cuda.is_available():
-                device = "cuda:0"
-            elif hasattr(torch.backends, 'mps') and torch.backends.mps.is_available():
-                device = "mps"
-            else:
-                device = "cpu"
-        
+            device = os.environ.get("KRONOS_DEVICE")
+            if device is None:
+                if torch.cuda.is_available():
+                    device = "cuda:0"
+                elif hasattr(torch.backends, 'mps') and torch.backends.mps.is_available():
+                    device = "mps"
+                else:
+                    device = "cpu"
+        elif isinstance(device, torch.device):
+            device = str(device)
+
         self.device = device
 
         self.tokenizer = self.tokenizer.to(self.device)
         self.model = self.model.to(self.device)
 
-    def generate(self, x, x_stamp, y_stamp, pred_len, T, top_k, top_p, sample_count, verbose):
+    @staticmethod
+    def _floored_std(x_std, eps=1e-5, floor=1e-3):
+        """Floor the per-feature standard deviation to avoid blow-ups on flat windows.
+
+        A flat lookback window yields x_std ~ 0; dividing by an arbitrarily small
+        epsilon (1e-5) alone amplifies any residual noise by up to 1e5x. The small
+        additive epsilon is kept (it is part of the pretrained normalization) and
+        a hard floor guarantees flat windows stay numerically stable.
+        """
+        return np.maximum(x_std + eps, floor)
+
+    def generate(self, x, x_stamp, y_stamp, pred_len, T, top_k, top_p, sample_count, verbose, padding_mask=None):  # noqa: N803
 
         x_tensor = torch.from_numpy(np.array(x).astype(np.float32)).to(self.device)
         x_stamp_tensor = torch.from_numpy(np.array(x_stamp).astype(np.float32)).to(self.device)
         y_stamp_tensor = torch.from_numpy(np.array(y_stamp).astype(np.float32)).to(self.device)
+        if padding_mask is not None:
+            padding_mask_tensor = torch.from_numpy(np.array(padding_mask)).to(self.device)
+        else:
+            padding_mask_tensor = None
 
         preds = auto_regressive_inference(self.tokenizer, self.model, x_tensor, x_stamp_tensor, y_stamp_tensor, self.max_context, pred_len,
-                                          self.clip, T, top_k, top_p, sample_count, verbose)
+                                          self.clip, T, top_k, top_p, sample_count, verbose, padding_mask_tensor)
         preds = preds[:, -pred_len:, :]
         return preds
 
-    def predict(self, df, x_timestamp, y_timestamp, pred_len, T=1.0, top_k=0, top_p=0.9, sample_count=1, verbose=True):
+    def predict(self, df, x_timestamp, y_timestamp, pred_len, T=1.0, top_k=0, top_p=0.9, sample_count=1, verbose=True):  # noqa: N803
 
         if not isinstance(df, pd.DataFrame):
             raise ValueError("Input must be a pandas DataFrame.")
@@ -542,8 +637,9 @@ class KronosPredictor:
         y_stamp = y_time_df.values.astype(np.float32)
 
         x_mean, x_std = np.mean(x, axis=0), np.std(x, axis=0)
+        x_std = self._floored_std(x_std)
 
-        x = (x - x_mean) / (x_std + 1e-5)
+        x = (x - x_mean) / x_std
         x = np.clip(x, -self.clip, self.clip)
 
         x = x[np.newaxis, :]
@@ -553,15 +649,20 @@ class KronosPredictor:
         preds = self.generate(x, x_stamp, y_stamp, pred_len, T, top_k, top_p, sample_count, verbose)
 
         preds = preds.squeeze(0)
-        preds = preds * (x_std + 1e-5) + x_mean
+        preds = preds * x_std + x_mean
 
         pred_df = pd.DataFrame(preds, columns=self.price_cols + [self.vol_col, self.amt_vol], index=y_timestamp)
         return pred_df
 
 
-    def predict_batch(self, df_list, x_timestamp_list, y_timestamp_list, pred_len, T=1.0, top_k=0, top_p=0.9, sample_count=1, verbose=True):
+    def predict_batch(self, df_list, x_timestamp_list, y_timestamp_list, pred_len, T=1.0, top_k=0, top_p=0.9, sample_count=1, verbose=True):  # noqa: N803
         """
-        Perform parallel (batch) prediction on multiple time series. All series must have the same historical length and prediction length (pred_len).
+        Perform parallel (batch) prediction on multiple time series.
+
+        Historical lengths may differ between series: inputs are left-padded to
+        the longest series and a padding mask is threaded through inference so
+        that the model never attends to padding. All series must share the same
+        prediction length (pred_len).
 
         Args:
             df_list (List[pd.DataFrame]): List of input DataFrames, each containing price columns and optional volume/amount columns.
@@ -627,7 +728,8 @@ class KronosPredictor:
                 raise ValueError(f"y_timestamp length at index {i} should equal pred_len={pred_len}, got {y_stamp.shape[0]}.")
 
             x_mean, x_std = np.mean(x, axis=0), np.std(x, axis=0)
-            x_norm = (x - x_mean) / (x_std + 1e-5)
+            x_std = self._floored_std(x_std)
+            x_norm = (x - x_mean) / x_std
             x_norm = np.clip(x_norm, -self.clip, self.clip)
 
             x_list.append(x_norm)
@@ -639,22 +741,35 @@ class KronosPredictor:
             seq_lens.append(x_norm.shape[0])
             y_lens.append(y_stamp.shape[0])
 
-        # Require all series to have consistent historical and prediction lengths for batch processing
-        if len(set(seq_lens)) != 1:
-            raise ValueError(f"Parallel prediction requires all series to have consistent historical lengths, got: {seq_lens}")
+        # Prediction lengths must match so one autoregressive loop covers the batch.
         if len(set(y_lens)) != 1:
             raise ValueError(f"Parallel prediction requires all series to have consistent prediction lengths, got: {y_lens}")
 
-        x_batch = np.stack(x_list, axis=0).astype(np.float32)           # (B, seq_len, feat)
-        x_stamp_batch = np.stack(x_stamp_list, axis=0).astype(np.float32) # (B, seq_len, time_feat)
-        y_stamp_batch = np.stack(y_stamp_list, axis=0).astype(np.float32) # (B, pred_len, time_feat)
+        # Left-pad heterogeneous histories to the longest series and build a
+        # padding mask (1 = padding) so attention never touches padded columns.
+        max_len = max(seq_lens)
+        feat_dim = x_list[0].shape[1]
+        time_feat_dim = x_stamp_list[0].shape[1]
+        x_batch = np.zeros((num_series, max_len, feat_dim), dtype=np.float32)
+        x_stamp_batch = np.zeros((num_series, max_len, time_feat_dim), dtype=np.float32)
+        pad_mask = np.zeros((num_series, max_len), dtype=np.bool_)
+        for i in range(num_series):
+            pad_len = max_len - seq_lens[i]
+            if pad_len > 0:
+                x_batch[i, pad_len:] = x_list[i]
+                x_stamp_batch[i, pad_len:] = x_stamp_list[i]
+                pad_mask[i, :pad_len] = True
+            else:
+                x_batch[i] = x_list[i]
+                x_stamp_batch[i] = x_stamp_list[i]
+        y_stamp_batch = np.stack(y_stamp_list, axis=0).astype(np.float32)  # (B, pred_len, time_feat)
 
-        preds = self.generate(x_batch, x_stamp_batch, y_stamp_batch, pred_len, T, top_k, top_p, sample_count, verbose)
-        # preds: (B, pred_len, feat)
+        preds = self.generate(x_batch, x_stamp_batch, y_stamp_batch, pred_len, T, top_k, top_p, sample_count, verbose, padding_mask=pad_mask)
+        # preds has shape (B, pred_len, feat)
 
         pred_dfs = []
         for i in range(num_series):
-            preds_i = preds[i] * (stds[i] + 1e-5) + means[i]
+            preds_i = preds[i] * stds[i] + means[i]
             pred_df = pd.DataFrame(preds_i, columns=self.price_cols + [self.vol_col, self.amt_vol], index=y_timestamp_list[i])
             pred_dfs.append(pred_df)
 

@@ -1,11 +1,20 @@
-import pandas as pd
-import matplotlib.pyplot as plt
+import argparse
 import sys
-sys.path.append("../")
-from model import Kronos, KronosTokenizer, KronosPredictor
+from pathlib import Path
+
+import pandas as pd
+
+# Anchor the project root on this file's location so the example can be run
+# from any working directory (e.g. `python examples/prediction_example.py`).
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+from model import Kronos, KronosPredictor, KronosTokenizer
+
+REQUIRED_COLUMNS = ['open', 'high', 'low', 'close', 'volume', 'amount', 'timestamps']
 
 
 def plot_prediction(kline_df, pred_df):
+    import matplotlib.pyplot as plt
+
     pred_df.index = kline_df.index[-pred_df.shape[0]:]
     sr_close = kline_df['close']
     sr_pred_close = pred_df['close']
@@ -38,43 +47,95 @@ def plot_prediction(kline_df, pred_df):
     plt.show()
 
 
-# 1. Load Model and Tokenizer
-tokenizer = KronosTokenizer.from_pretrained("NeoQuasar/Kronos-Tokenizer-base")
-model = Kronos.from_pretrained("NeoQuasar/Kronos-small")
+def parse_args():
+    parser = argparse.ArgumentParser(
+        description="Run Kronos inference on an OHLCV CSV file.",
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter,
+    )
+    parser.add_argument("csv_path", type=Path,
+                        help="Path to a CSV with columns: " + ", ".join(REQUIRED_COLUMNS))
+    parser.add_argument("--lookback", type=int, default=400,
+                        help="Number of historical bars to condition on.")
+    parser.add_argument("--pred_len", type=int, default=120,
+                        help="Number of bars to forecast.")
+    parser.add_argument("--max_context", type=int, default=512,
+                        help="Maximum context length fed to the model.")
+    parser.add_argument("--device", type=str, default=None,
+                        help="Inference device (defaults to KRONOS_DEVICE, then auto-detect).")
+    parser.add_argument("--top_k", type=int, default=0,
+                        help="Top-k sampling threshold (0 disables).")
+    parser.add_argument("--top_p", type=float, default=0.9,
+                        help="Nucleus sampling threshold.")
+    parser.add_argument("--T", type=float, default=1.0,
+                        help="Sampling temperature.")
+    parser.add_argument("--sample_count", type=int, default=1,
+                        help="Parallel samples per series (averaged).")
+    parser.add_argument("--no-show", action="store_true",
+                        help="Skip the matplotlib plot.")
+    return parser.parse_args()
 
-# 2. Instantiate Predictor
-predictor = KronosPredictor(model, tokenizer, max_context=512)
 
-# 3. Prepare Data
-df = pd.read_csv("./data/XSHG_5min_600977.csv")
-df['timestamps'] = pd.to_datetime(df['timestamps'])
+def main():
+    args = parse_args()
 
-lookback = 400
-pred_len = 120
+    if not args.csv_path.is_file():
+        raise FileNotFoundError(f"CSV file not found: {args.csv_path}")
 
-x_df = df.loc[:lookback-1, ['open', 'high', 'low', 'close', 'volume', 'amount']]
-x_timestamp = df.loc[:lookback-1, 'timestamps']
-y_timestamp = df.loc[lookback:lookback+pred_len-1, 'timestamps']
+    df = pd.read_csv(args.csv_path)
+    missing = [c for c in REQUIRED_COLUMNS if c not in df.columns]
+    if missing:
+        raise ValueError(
+            f"CSV at {args.csv_path} is missing required columns: {missing}. "
+            f"Expected columns: {REQUIRED_COLUMNS}"
+        )
 
-# 4. Make Prediction
-pred_df = predictor.predict(
-    df=x_df,
-    x_timestamp=x_timestamp,
-    y_timestamp=y_timestamp,
-    pred_len=pred_len,
-    T=1.0,
-    top_p=0.9,
-    sample_count=1,
-    verbose=True
-)
+    df['timestamps'] = pd.to_datetime(df['timestamps'])
 
-# 5. Visualize Results
-print("Forecasted Data Head:")
-print(pred_df.head())
+    if args.lookback < 1 or args.pred_len < 1:
+        raise ValueError("lookback and pred_len must both be >= 1.")
+    if args.lookback + args.pred_len > len(df):
+        raise ValueError(
+            f"lookback + pred_len ({args.lookback + args.pred_len}) exceeds the "
+            f"number of rows in the CSV ({len(df)})."
+        )
 
-# Combine historical and forecasted data for plotting
-kline_df = df.loc[:lookback+pred_len-1]
+    # 1. Load Model and Tokenizer
+    tokenizer = KronosTokenizer.from_pretrained("NeoQuasar/Kronos-Tokenizer-base")
+    model = Kronos.from_pretrained("NeoQuasar/Kronos-small")
 
-# visualize
-plot_prediction(kline_df, pred_df)
+    # 2. Instantiate Predictor
+    predictor = KronosPredictor(model, tokenizer, device=args.device, max_context=args.max_context)
 
+    # 3. Prepare Data
+    lookback = args.lookback
+    pred_len = args.pred_len
+
+    x_df = df.loc[:lookback - 1, ['open', 'high', 'low', 'close', 'volume', 'amount']]
+    x_timestamp = df.loc[:lookback - 1, 'timestamps']
+    y_timestamp = df.loc[lookback:lookback + pred_len - 1, 'timestamps']
+
+    # 4. Make Prediction
+    pred_df = predictor.predict(
+        df=x_df,
+        x_timestamp=x_timestamp,
+        y_timestamp=y_timestamp,
+        pred_len=pred_len,
+        T=args.T,
+        top_k=args.top_k,
+        top_p=args.top_p,
+        sample_count=args.sample_count,
+        verbose=True
+    )
+
+    # 5. Visualize Results
+    print("Forecasted Data Head:")
+    print(pred_df.head())
+
+    if not args.no_show:
+        # Combine historical and forecasted data for plotting
+        kline_df = df.loc[:lookback + pred_len - 1]
+        plot_prediction(kline_df, pred_df)
+
+
+if __name__ == '__main__':
+    main()

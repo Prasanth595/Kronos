@@ -1,28 +1,30 @@
-import os
-import sys
 import argparse
+import os
 import pickle
+import sys
 from collections import defaultdict
+from pathlib import Path
 
 import numpy as np
 import pandas as pd
-import torch
-from torch.utils.data import Dataset, DataLoader
-from tqdm import trange, tqdm
-from matplotlib import pyplot as plt
-
 import qlib
-from qlib.config import REG_CN
-from qlib.backtest import backtest, executor, CommonInfrastructure
+import torch
+from matplotlib import pyplot as plt
+from qlib.backtest import backtest, executor
+from qlib.config import REG_CN, REG_US
 from qlib.contrib.evaluate import risk_analysis
 from qlib.contrib.strategy import TopkDropoutStrategy
-from qlib.utils import flatten_dict
 from qlib.utils.time import Freq
+from torch.utils.data import DataLoader, Dataset
+from tqdm import tqdm
 
-# Ensure project root is in the Python path
-sys.path.append("../")
+# Anchor the project root on this file's location so the script can be launched
+# from any working directory (e.g. `python finetune/qlib_test.py`).
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from config import Config
 from model.kronos import Kronos, KronosTokenizer, auto_regressive_inference
+
+_QLIB_REGIONS = {"cn": REG_CN, "us": REG_US}
 
 
 # =================================================================================
@@ -46,30 +48,37 @@ class QlibTestDataset(Dataset):
         self.feature_list = config.feature_list
         self.time_feature_list = config.time_feature_list
         self.indices = []
+        # Cache of processed (feature columns + time features) frames, computed
+        # lazily per symbol on first access instead of for every symbol at init.
+        self._processed = {}
 
         print("Preprocessing and building indices for test dataset...")
         for symbol in self.symbols:
             df = self.data[symbol].reset_index()
-            # Generate time features on-the-fly
-            df['minute'] = df['datetime'].dt.minute
-            df['hour'] = df['datetime'].dt.hour
-            df['weekday'] = df['datetime'].dt.weekday
-            df['day'] = df['datetime'].dt.day
-            df['month'] = df['datetime'].dt.month
-            self.data[symbol] = df  # Store preprocessed dataframe
-
             num_samples = len(df) - self.window_size + 1
             if num_samples > 0:
                 for i in range(num_samples):
                     timestamp = df.iloc[i + self.config.lookback_window - 1]['datetime']
                     self.indices.append((symbol, i, timestamp))
 
+    def _get_processed(self, symbol: str) -> pd.DataFrame:
+        """Returns the feature + time-feature frame for a symbol, computing it once."""
+        if symbol not in self._processed:
+            df = self.data[symbol].reset_index()
+            df['minute'] = df['datetime'].dt.minute
+            df['hour'] = df['datetime'].dt.hour
+            df['weekday'] = df['datetime'].dt.weekday
+            df['day'] = df['datetime'].dt.day
+            df['month'] = df['datetime'].dt.month
+            self._processed[symbol] = df
+        return self._processed[symbol]
+
     def __len__(self) -> int:
         return len(self.indices)
 
     def __getitem__(self, idx: int):
         symbol, start_idx, timestamp = self.indices[idx]
-        df = self.data[symbol]
+        df = self._get_processed(symbol)
 
         context_end = start_idx + self.config.lookback_window
         predict_end = context_end + self.config.predict_window
@@ -83,7 +92,8 @@ class QlibTestDataset(Dataset):
 
         # Instance-level normalization, consistent with training
         x_mean, x_std = np.mean(x, axis=0), np.std(x, axis=0)
-        x = (x - x_mean) / (x_std + 1e-5)
+        x_std = np.maximum(x_std + 1e-5, 1e-3)  # Floor near-zero denominators on flat windows
+        x = (x - x_mean) / x_std
         x = np.clip(x, -self.config.clip, self.config.clip)
 
         return torch.from_numpy(x), torch.from_numpy(x_stamp), torch.from_numpy(y_stamp), symbol, timestamp
@@ -105,7 +115,10 @@ class QlibBacktest:
     def initialize_qlib(self):
         """Initializes the Qlib environment."""
         print("Initializing Qlib for backtesting...")
-        qlib.init(provider_uri=self.config.qlib_data_path, region=REG_CN)
+        region = _QLIB_REGIONS.get(self.config.qlib_region)
+        if region is None:
+            raise ValueError(f"Unsupported qlib_region: {self.config.qlib_region}")
+        qlib.init(provider_uri=self.config.qlib_data_path, region=region)
 
     def run_single_backtest(self, signal_series: pd.Series) -> pd.DataFrame:
         """
@@ -124,24 +137,21 @@ class QlibBacktest:
             signal=signal_series,
         )
         executor_config = {
-            "time_per_step": "day",
+            "time_per_step": self.config.backtest_time_per_step,
             "generate_portfolio_metrics": True,
             "delay_execution": True,
         }
         backtest_config = {
             "start_time": self.config.backtest_time_range[0],
             "end_time": self.config.backtest_time_range[1],
-            "account": 100_000_000,
+            "account": self.config.backtest_account,
             "benchmark": self.config.backtest_benchmark,
-            "exchange_kwargs": {
-                "freq": "day", "limit_threshold": 0.095, "deal_price": "open",
-                "open_cost": 0.001, "close_cost": 0.0015, "min_cost": 5,
-            },
+            "exchange_kwargs": dict(self.config.backtest_exchange_kwargs),
             "executor": executor.SimulatorExecutor(**executor_config),
         }
 
         portfolio_metric_dict, _ = backtest(strategy=strategy, **backtest_config)
-        analysis_freq = "{0}{1}".format(*Freq.parse("day"))
+        analysis_freq = "{}{}".format(*Freq.parse(self.config.backtest_freq))
         report, _ = portfolio_metric_dict.get(analysis_freq)
 
         # --- Analysis and Reporting ---
@@ -196,7 +206,9 @@ class QlibBacktest:
         axes[1].set_ylabel("Cumulative Excess Return")
 
         plt.tight_layout()
-        plt.savefig("../figures/backtest_result_example.png", dpi=200)
+        figures_dir = Path(__file__).resolve().parent.parent / "figures"
+        figures_dir.mkdir(parents=True, exist_ok=True)
+        plt.savefig(str(figures_dir / "backtest_result_example.png"), dpi=200)
         plt.show()
 
 
@@ -225,7 +237,7 @@ def collate_fn_for_inference(batch):
         A single tuple containing the batched data.
     """
     # Unzip the list of samples into separate lists for each data type
-    x, x_stamp, y_stamp, symbols, timestamps = zip(*batch)
+    x, x_stamp, y_stamp, symbols, timestamps = zip(*batch, strict=True)
 
     # Stack the tensors to create a batch
     x_batch = torch.stack(x, dim=0)
@@ -236,13 +248,16 @@ def collate_fn_for_inference(batch):
     return x_batch, x_stamp_batch, y_stamp_batch, list(symbols), list(timestamps)
 
 
-def generate_predictions(config: dict, test_data: dict) -> dict[str, pd.DataFrame]:
+def generate_predictions(config: dict, test_data: dict, base_config: Config = None) -> dict[str, pd.DataFrame]:
     """
     Runs inference on the test dataset to generate prediction signals.
 
     Args:
         config (dict): A dictionary containing inference parameters.
         test_data (dict): The raw test data loaded from a pickle file.
+        base_config (Config, optional): The base Config instance whose data
+            schema (feature/time feature lists, window sizes) is used to build
+            the inference dataset. Falls back to a fresh Config() if omitted.
 
     Returns:
         A dictionary where keys are signal types (e.g., 'mean', 'last') and
@@ -251,13 +266,14 @@ def generate_predictions(config: dict, test_data: dict) -> dict[str, pd.DataFram
     tokenizer, model = load_models(config)
     device = torch.device(config['device'])
 
-    # Use the Dataset and DataLoader for efficient batching and processing
-    dataset = QlibTestDataset(data=test_data, config=Config())
+    # Use the caller's base_config so user overrides (feature_list, windows,
+    # clipping, ...) are respected instead of silently constructing defaults.
+    dataset = QlibTestDataset(data=test_data, config=base_config if base_config is not None else Config())
     loader = DataLoader(
         dataset,
         batch_size=config['batch_size'] // config['sample_count'],
         shuffle=False,
-        num_workers=os.cpu_count() // 2,
+        num_workers=min(config.get('num_workers', 4), 8),
         collate_fn=collate_fn_for_inference
     )
 
@@ -324,6 +340,7 @@ def main():
         'top_p': base_config.inference_top_p,
         'sample_count': base_config.inference_sample_count,
         'batch_size': base_config.backtest_batch_size,
+        'num_workers': base_config.inference_num_workers,
     }
 
     print("--- Running with Configuration ---")
@@ -338,7 +355,7 @@ def main():
         test_data = pickle.load(f)
     print(test_data)
     # --- 3. Generate Predictions ---
-    model_preds = generate_predictions(run_config, test_data)
+    model_preds = generate_predictions(run_config, test_data, base_config)
 
     # --- 4. Save Predictions ---
     save_dir = os.path.join(run_config['result_save_path'], run_config['result_name'])

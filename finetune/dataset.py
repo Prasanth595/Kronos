@@ -1,9 +1,10 @@
 import pickle
 import random
+
 import numpy as np
 import torch
-from torch.utils.data import Dataset
 from config import Config
+from torch.utils.data import Dataset
 
 
 class QlibDataset(Dataset):
@@ -33,10 +34,10 @@ class QlibDataset(Dataset):
         # Set paths and number of samples based on the data type.
         if data_type == 'train':
             self.data_path = f"{self.config.dataset_path}/train_data.pkl"
-            self.n_samples = self.config.n_train_iter
+            self.n_samples = self.config.n_train_samples_per_epoch
         else:
             self.data_path = f"{self.config.dataset_path}/val_data.pkl"
-            self.n_samples = self.config.n_val_iter
+            self.n_samples = self.config.n_val_samples_per_epoch
 
         with open(self.data_path, 'rb') as f:
             self.data = pickle.load(f)
@@ -90,7 +91,7 @@ class QlibDataset(Dataset):
         return self.n_samples
 
     def __getitem__(self, idx: int) -> tuple[torch.Tensor, torch.Tensor]:
-        
+
         # Select a random sample from the entire pool of indices.
         random_idx = self.py_rng.randint(0, len(self.indices) - 1)
         symbol, start_idx = self.indices[random_idx]
@@ -112,8 +113,13 @@ class QlibDataset(Dataset):
         x_mean = np.mean(past_x, axis=0)
         x_std  = np.std(past_x, axis=0)
 
+        # Floor the std so flat lookback windows cannot amplify noise via a
+        # near-zero denominator. The small additive epsilon is retained to match
+        # pretrained normalization numerics; it is irrelevant once floored.
+        x_std = np.maximum(x_std + 1e-5, 1e-3)
+
         # Apply normalization and robust clipping to the entire sequence
-        x = (x - x_mean) / (x_std + 1e-5)
+        x = (x - x_mean) / x_std
         x = np.clip(x, -self.config.clip, self.config.clip)
 
         # Convert to PyTorch tensors.
