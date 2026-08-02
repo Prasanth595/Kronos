@@ -33,10 +33,10 @@ class QlibDataset(Dataset):
         # Set paths and number of samples based on the data type.
         if data_type == 'train':
             self.data_path = f"{self.config.dataset_path}/train_data.pkl"
-            self.n_samples = self.config.n_train_iter
+            self.n_samples = self.config.n_train_samples_per_epoch
         else:
             self.data_path = f"{self.config.dataset_path}/val_data.pkl"
-            self.n_samples = self.config.n_val_iter
+            self.n_samples = self.config.n_val_samples_per_epoch
 
         with open(self.data_path, 'rb') as f:
             self.data = pickle.load(f)
@@ -112,8 +112,12 @@ class QlibDataset(Dataset):
         x_mean = np.mean(past_x, axis=0)
         x_std  = np.std(past_x, axis=0)
 
+        # Floor the std so flat lookback windows cannot amplify noise via a
+        # near-zero denominator. Inert for real (non-degenerate) data.
+        x_std = np.maximum(x_std, 1e-3)
+
         # Apply normalization and robust clipping to the entire sequence
-        x = (x - x_mean) / (x_std + 1e-5)
+        x = (x - x_mean) / x_std
         x = np.clip(x, -self.config.clip, self.config.clip)
 
         # Convert to PyTorch tensors.
