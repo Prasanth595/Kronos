@@ -671,6 +671,7 @@
                 if (response.data.model_available) {
                     availableModels = response.data.models;
                     populateModelSelect();
+                    applyRecommendedDevice(response.data.recommended_device);
                     console.log('✅ Available models loaded successfully:', availableModels);
                 } else {
                     console.warn('⚠️ Kronos model library not available');
@@ -679,6 +680,22 @@
             } catch (error) {
                 console.error('❌ Failed to load available models:', error);
                 showStatus('error', 'Failed to load available models');
+            }
+        }
+
+        // Preselect whatever accelerator this machine actually has.
+        // The <select> is authored CPU-first, so on an Apple Silicon Mac the
+        // default silently ignored the GPU; the server detects the device
+        // because only it can see what torch was built against.
+        function applyRecommendedDevice(device) {
+            if (!device) return;
+            const select = document.getElementById('device-select');
+            const match = Array.from(select.options).find(o => o.value === device);
+            if (!match) return;
+            select.value = device;
+            const hint = select.parentElement.querySelector('.form-text');
+            if (hint) {
+                hint.textContent = `Select the device to run the model on (detected: ${match.textContent})`;
             }
         }
 
