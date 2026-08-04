@@ -662,12 +662,33 @@ def load_model():
     except Exception as e:
         return jsonify({'error': f'Model loading failed: {str(e)}'}), 500
 
+def recommended_device():
+    """Best device actually present on this machine.
+
+    The UI's <select> is authored with CPU first, so on an Apple Silicon Mac
+    the default was to ignore the GPU entirely. Detect here rather than in the
+    browser: the browser cannot see what torch was built against.
+    """
+    if not MODEL_AVAILABLE:
+        return 'cpu'
+    try:
+        import torch
+    except ImportError:
+        return 'cpu'
+    if torch.cuda.is_available():
+        return 'cuda'
+    if getattr(torch.backends, 'mps', None) is not None and torch.backends.mps.is_available():
+        return 'mps'
+    return 'cpu'
+
+
 @app.route('/api/available-models')
 def get_available_models():
     """Get available model list"""
     return jsonify({
         'models': AVAILABLE_MODELS,
-        'model_available': MODEL_AVAILABLE
+        'model_available': MODEL_AVAILABLE,
+        'recommended_device': recommended_device()
     })
 
 @app.route('/api/model-status')
