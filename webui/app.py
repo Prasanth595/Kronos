@@ -704,5 +704,15 @@ if __name__ == '__main__':
         print("Tip: You can load Kronos model through /api/load-model endpoint")
     else:
         print("Tip: Will use simulated data for demonstration")
-    
-    app.run(debug=True, host='0.0.0.0', port=7070)
+
+    # Defaults chosen for a laptop rather than a server: bind loopback, no
+    # debugger. The previous `host='0.0.0.0', debug=True` published a Flask
+    # debug console -- which executes arbitrary Python through the browser --
+    # to every machine on whatever cafe or office wifi the laptop joins.
+    # Both are still reachable via env var for deliberate use.
+    host = os.environ.get('KRONOS_WEBUI_HOST', '127.0.0.1')
+    port = int(os.environ.get('KRONOS_WEBUI_PORT', '7070'))
+    debug = os.environ.get('KRONOS_WEBUI_DEBUG', '0') == '1'
+    print(f"Serving on http://{host}:{port}")
+
+    app.run(debug=debug, host=host, port=port)

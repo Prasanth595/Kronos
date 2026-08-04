@@ -79,7 +79,14 @@ def main():
         webbrowser.open('http://localhost:7070')
         
         # Start Flask application
-        app.run(debug=True, host='0.0.0.0', port=7070)
+        # Same env gate as app.py. Upstream hard-codes debug=True + 0.0.0.0
+        # here, and the README lists `python run.py` as the first way to start
+        # -- so the hardening in app.py does nothing for the path most people
+        # actually take, because this file calls app.run itself.
+        host = os.environ.get('KRONOS_WEBUI_HOST', '127.0.0.1')
+        port = int(os.environ.get('KRONOS_WEBUI_PORT', '7070'))
+        debug = os.environ.get('KRONOS_WEBUI_DEBUG', '0') == '1'
+        app.run(debug=debug, host=host, port=port)
         
     except Exception as e:
         print(f"❌ Startup failed: {e}")
