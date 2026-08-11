@@ -201,6 +201,34 @@ close-confirmed breaks, retest tracking. SPY 5m 2016-2026, 9,168 events.
 - Rulebook context adopted: fresh zones > tested zones; never fade loud volume into a
   level; retests are not confirmation.
 
+## 9. MOMENTUM FIRST-PULLBACK, small-cap gappers (backtest v1, 2026-08-11)
+
+Ross Cameron pattern, mechanized in momentum_spec_v1.md (frozen BEFORE testing).
+Universe: open-gap >=10%, open $2-20, morning relvol >=5x by 09:45, top-6/day,
+2025-08 -> 2026-08, n=99 trades (float pillar NOT applied - no historical float;
+survivorship-biased universe -> results likely flattered).
+
+- Funnel: 1357 candidate-days -> 99 trades. 838 DQ'd (541 retrace>50%,
+  145 heavy red vol, 117 VWAP break, 35 9EMA break). Pattern completion is RARE.
+- COST-LINE VERDICT: raw expectancy +0.163 R/trade at zero slip; +0.017 at
+  0.25%/side; -0.105 at 0.5%; -0.302 at 1%. The entire edge lives inside the
+  spread. Matches source's own framing: the edge is execution, not selection.
+- Shape: lottery profile. WR 32%, median R -0.62, p75 +0.19, max +9.13.
+  Stops average -1.11R (1%-through + slip). Sum R without top-5 winners: -0.380
+  R/trade -> the tail carries everything; must be present for the monsters.
+- Mechanized exits that WORK: topping_tail (+0.82R avg) and material_red
+  (+0.80R avg) harvested most of the winners.
+- Both halves negative at 0.5% slip (-0.147 / -0.078): consistently cost-bound,
+  not regime-dependent.
+- Exploratory conditioning (hypothesis-generating ONLY, 7-way multiple
+  comparisons): later entries (8:15-9:42 ET) Q4 = 44% WR / +0.22R vs earliest
+  Q1 -0.57R; tight-risk setups (stop <2.1% away) +0.44R; mega-gaps (>87%) and
+  mega-squeezes worst. If a v1.1 filter is ever adopted it must be
+  pre-registered BEFORE looking at new data.
+- STATUS: fails gauntlet at realistic costs as specced. Forward paper log
+  (Sleeve E candidate, momentum_paper.py, WITH float pillar) continues nightly -
+  it is the clean sample and the only honest read on real fill quality.
+
 ## 9. CRISIS SLEEVE E + VIX BUY-THE-FEAR (2026-07-06)
 
 VIX first-cross forward returns (SPY/QQQ, 2016-2026, ~5 independent crisis regimes):
