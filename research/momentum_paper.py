@@ -64,10 +64,15 @@ def movers(top=25):
 
 
 def daily_bars(sym, limit, end_s):
-    return get(
+    # Alpaca defaults start to the current day when omitted, which would return
+    # a single bar; always pass an explicit lookback window.
+    start_s = (datetime.utcnow() - timedelta(days=200)).strftime("%Y-%m-%dT00:00:00Z")
+    bars = get(
         f"{DATA}/v2/stocks/{sym}/bars",
-        timeframe="1Day", limit=limit, adjustment="all", feed="sip", end=end_s,
+        timeframe="1Day", limit=limit, adjustment="all", feed="sip",
+        start=start_s, end=end_s, sort="desc",
     ).get("bars") or []
+    return bars[::-1]  # chronological for callers
 
 
 def minute_bars(sym, day):

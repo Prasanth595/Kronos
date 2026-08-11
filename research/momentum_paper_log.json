@@ -1,0 +1,197 @@
+{
+ "spec": "momentum_spec_v1.md",
+ "trades": [
+  {
+   "symbol": "PLAG",
+   "date": "2026-08-11",
+   "no_trade": true,
+   "dq_reason": "retrace>50%",
+   "pillars": {
+    "symbol": "PLAG",
+    "day": "2026-08-11",
+    "pct_gain": 927.0,
+    "price": 5.81,
+    "gainer_rank": 1,
+    "gap_pct": 89.1,
+    "relvol": 128.6,
+    "volume": 198673672,
+    "float": null,
+    "float_unknown": true,
+    "catalyst_waived": true
+   }
+  },
+  {
+   "symbol": "WXM",
+   "date": "2026-08-11",
+   "no_trade": true,
+   "dq_reason": "retrace>50%",
+   "pillars": {
+    "symbol": "WXM",
+    "day": "2026-08-11",
+    "pct_gain": 97.5,
+    "price": 7.9,
+    "gainer_rank": 3,
+    "gap_pct": 168.0,
+    "relvol": 320.6,
+    "volume": 42123708,
+    "float": null,
+    "float_unknown": true,
+    "catalyst_waived": true
+   }
+  },
+  {
+   "symbol": "QMCO",
+   "date": "2026-08-11",
+   "entry_time_et": "09:34",
+   "entry_px_raw": 16.31,
+   "entry_px": 16.3916,
+   "stop": 15.509,
+   "squeeze_high": 16.5,
+   "swing_low": 13.25,
+   "entry_bar_vol": 144576,
+   "pillars": {
+    "symbol": "QMCO",
+    "day": "2026-08-11",
+    "pct_gain": 64.7,
+    "price": 19.4,
+    "gainer_rank": 6,
+    "gap_pct": 23.3,
+    "relvol": 13.1,
+    "volume": 16440850,
+    "float": null,
+    "float_unknown": true,
+    "catalyst_waived": false
+   },
+   "exit_time_et": "09:38",
+   "exit_reason": "heavy_red",
+   "exit_px_raw": 16.1301,
+   "exit_px": 16.0494,
+   "ret_pct": -2.09,
+   "r_multiple": -0.33
+  },
+  {
+   "symbol": "AIFA",
+   "date": "2026-08-11",
+   "no_trade": true,
+   "dq_reason": "closed below 9EMA",
+   "pillars": {
+    "symbol": "AIFA",
+    "day": "2026-08-11",
+    "pct_gain": 50.7,
+    "price": 3.18,
+    "gainer_rank": 8,
+    "gap_pct": 8.1,
+    "relvol": 82.1,
+    "volume": 7117426,
+    "float": null,
+    "float_unknown": true,
+    "catalyst_waived": false
+   }
+  },
+  {
+   "symbol": "MSGY",
+   "date": "2026-08-11",
+   "no_trade": true,
+   "dq_reason": "heavy red vol in pullback",
+   "pillars": {
+    "symbol": "MSGY",
+    "day": "2026-08-11",
+    "pct_gain": 48.2,
+    "price": 3.43,
+    "gainer_rank": 10,
+    "gap_pct": 18.8,
+    "relvol": 278.6,
+    "volume": 40487113,
+    "float": null,
+    "float_unknown": true,
+    "catalyst_waived": false
+   }
+  },
+  {
+   "symbol": "STIM",
+   "date": "2026-08-11",
+   "entry_time_et": "07:58",
+   "entry_px_raw": 2.41,
+   "entry_px": 2.422,
+   "stop": 2.38,
+   "squeeze_high": 2.48,
+   "swing_low": 2.18,
+   "entry_bar_vol": 9069,
+   "pillars": {
+    "symbol": "STIM",
+    "day": "2026-08-11",
+    "pct_gain": 47,
+    "price": 3.19,
+    "gainer_rank": 11,
+    "gap_pct": 26.0,
+    "relvol": 16.4,
+    "volume": 28820236,
+    "float": null,
+    "float_unknown": true,
+    "catalyst_waived": false
+   },
+   "exit_time_et": "08:00",
+   "exit_reason": "heavy_red",
+   "exit_px_raw": 2.445,
+   "exit_px": 2.4328,
+   "ret_pct": 0.44,
+   "r_multiple": 0.16
+  },
+  {
+   "symbol": "NIQ",
+   "date": "2026-08-11",
+   "no_trade": true,
+   "dq_reason": "trigger outside window",
+   "pillars": {
+    "symbol": "NIQ",
+    "day": "2026-08-11",
+    "pct_gain": 42.0,
+    "price": 16.58,
+    "gainer_rank": 13,
+    "gap_pct": 17.4,
+    "relvol": 6.8,
+    "volume": 9821260,
+    "float": null,
+    "float_unknown": true,
+    "catalyst_waived": false
+   }
+  },
+  {
+   "symbol": "GRI",
+   "date": "2026-08-11",
+   "entry_time_et": "09:39",
+   "entry_px_raw": 1.94,
+   "entry_px": 1.9497,
+   "stop": 1.9,
+   "squeeze_high": 1.96,
+   "swing_low": 1.76,
+   "entry_bar_vol": 11868,
+   "pillars": {
+    "symbol": "GRI",
+    "day": "2026-08-11",
+    "pct_gain": 29.4,
+    "price": 2.2,
+    "gainer_rank": 25,
+    "gap_pct": 9.4,
+    "relvol": 86.9,
+    "volume": 6485619,
+    "float": null,
+    "float_unknown": true,
+    "catalyst_waived": false
+   },
+   "exit_time_et": "09:40",
+   "exit_reason": "stop",
+   "exit_px_raw": 1.881,
+   "exit_px": 1.8716,
+   "ret_pct": -4.01,
+   "r_multiple": -1.14
+  }
+ ],
+ "scans": [
+  {
+   "day": "2026-08-11",
+   "n_gainers": 25,
+   "n_candidates": 8
+  }
+ ]
+}
