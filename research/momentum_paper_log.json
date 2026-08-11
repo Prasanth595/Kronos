@@ -15,9 +15,10 @@
     "gap_pct": 89.1,
     "relvol": 128.6,
     "volume": 198673672,
-    "float": null,
-    "float_unknown": true,
-    "catalyst_waived": true
+    "float": 11638505,
+    "float_unknown": false,
+    "catalyst_waived": true,
+    "float_fail": false
    }
   },
   {
@@ -34,9 +35,10 @@
     "gap_pct": 168.0,
     "relvol": 320.6,
     "volume": 42123708,
-    "float": null,
-    "float_unknown": true,
-    "catalyst_waived": true
+    "float": 10017800,
+    "float_unknown": false,
+    "catalyst_waived": true,
+    "float_fail": false
    }
   },
   {
@@ -58,9 +60,10 @@
     "gap_pct": 23.3,
     "relvol": 13.1,
     "volume": 16440850,
-    "float": null,
-    "float_unknown": true,
-    "catalyst_waived": false
+    "float": 38959887,
+    "float_unknown": false,
+    "catalyst_waived": false,
+    "float_fail": true
    },
    "exit_time_et": "09:38",
    "exit_reason": "heavy_red",
@@ -83,9 +86,10 @@
     "gap_pct": 8.1,
     "relvol": 82.1,
     "volume": 7117426,
-    "float": null,
-    "float_unknown": true,
-    "catalyst_waived": false
+    "float": 3231310,
+    "float_unknown": false,
+    "catalyst_waived": false,
+    "float_fail": false
    }
   },
   {
@@ -102,9 +106,10 @@
     "gap_pct": 18.8,
     "relvol": 278.6,
     "volume": 40487113,
-    "float": null,
-    "float_unknown": true,
-    "catalyst_waived": false
+    "float": 340625,
+    "float_unknown": false,
+    "catalyst_waived": false,
+    "float_fail": false
    }
   },
   {
@@ -126,9 +131,10 @@
     "gap_pct": 26.0,
     "relvol": 16.4,
     "volume": 28820236,
-    "float": null,
-    "float_unknown": true,
-    "catalyst_waived": false
+    "float": 28286761,
+    "float_unknown": false,
+    "catalyst_waived": false,
+    "float_fail": true
    },
    "exit_time_et": "08:00",
    "exit_reason": "heavy_red",
@@ -151,9 +157,10 @@
     "gap_pct": 17.4,
     "relvol": 6.8,
     "volume": 9821260,
-    "float": null,
-    "float_unknown": true,
-    "catalyst_waived": false
+    "float": 56159130,
+    "float_unknown": false,
+    "catalyst_waived": false,
+    "float_fail": true
    }
   },
   {
@@ -175,9 +182,10 @@
     "gap_pct": 9.4,
     "relvol": 86.9,
     "volume": 6485619,
-    "float": null,
-    "float_unknown": true,
-    "catalyst_waived": false
+    "float": 89823,
+    "float_unknown": false,
+    "catalyst_waived": false,
+    "float_fail": false
    },
    "exit_time_et": "09:40",
    "exit_reason": "stop",
