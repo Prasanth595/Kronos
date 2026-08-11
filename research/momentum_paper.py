@@ -26,7 +26,6 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 LOG_PATH = os.path.join(HERE, "momentum_paper_log.json")
 FLOAT_CACHE_PATH = os.path.join(HERE, "float_cache.json")
 
-ET_OFFSET = -4  # EDT; spec assumes summer. Revisit at DST change (Nov 2026).
 SLIP = 0.005  # 0.5%/side
 ENTRY_START = "07:00"
 ENTRY_END = "09:45"
@@ -40,8 +39,17 @@ MAX_FLOAT = 20_000_000
 MIN_GAP = 2.0
 
 
+def et_offset(date_str):
+    """US Eastern UTC offset (hours) for a YYYY-MM-DD date; covers 2024-2027."""
+    for a, b in (("2024-03-10", "2024-11-03"), ("2025-03-09", "2025-11-02"),
+                 ("2026-03-08", "2026-11-01"), ("2027-03-14", "2027-11-07")):
+        if a <= date_str < b:
+            return -4
+    return -5
+
+
 def et_hhmm(ts):
-    dt = datetime.strptime(ts[:16], "%Y-%m-%dT%H:%M") + timedelta(hours=ET_OFFSET)
+    dt = datetime.strptime(ts[:16], "%Y-%m-%dT%H:%M") + timedelta(hours=et_offset(ts[:10]))
     return dt.strftime("%H:%M")
 
 
@@ -63,12 +71,13 @@ def daily_bars(sym, limit, end_s):
 
 
 def minute_bars(sym, day):
-    want_end = f"{day}T{10 - ET_OFFSET:02d}:16:00Z"  # 10:16 ET buffer
+    off = et_offset(day)
+    want_end = f"{day}T{10 - off:02d}:16:00Z"  # 10:16 ET buffer
     cap = (datetime.utcnow() - timedelta(minutes=16)).strftime("%Y-%m-%dT%H:%M:%SZ")
     return get(
         f"{DATA}/v2/stocks/{sym}/bars",
         timeframe="1Min", adjustment="raw", feed="sip", limit=10000,
-        start=f"{day}T{4 - ET_OFFSET:02d}:00:00Z",  # 04:00 ET
+        start=f"{day}T{4 - off:02d}:00:00Z",  # 04:00 ET
         end=min(want_end, cap),
     ).get("bars") or []
 
@@ -116,9 +125,10 @@ def check_pillars(sym, day, pct_gain, price, rank, floats, end_s):
     return True, d
 
 
-def replay(sym, day, detail):
+def replay(sym, day, detail, bars=None):
     """State machine per momentum_spec_v1.md. Returns trade dict or None."""
-    bars = minute_bars(sym, day)
+    if bars is None:
+        bars = minute_bars(sym, day)
     if len(bars) < 10:
         return None
     swing_low = None
@@ -192,6 +202,7 @@ def replay(sym, day, detail):
                 fill = exit_px * (1 - SLIP)
                 tr["exit_time_et"] = t_et
                 tr["exit_reason"] = reason
+                tr["exit_px_raw"] = round(exit_px, 4)
                 tr["exit_px"] = round(fill, 4)
                 tr["ret_pct"] = round((fill / tr["entry_px"] - 1) * 100, 2)
                 tr["r_multiple"] = round(
@@ -203,44 +214,41 @@ def replay(sym, day, detail):
             prev = b
             continue
 
-        if squeeze_high is None or b["h"] > squeeze_high:
-            if not disqualified and squeeze_high is not None and pullback and squeeze_active:
-                # new high during a valid pullback: crossing-candle check below
-                pass
-            new_high = True
-        else:
-            new_high = False
-
-        if new_high and not pullback:
+        crossing = (
+            squeeze_active and not disqualified and pullback
+            and b["h"] > pullback[-1]["h"]
+        )
+        if crossing and len(pullback) >= 2:
+            # crossing candle -> entry
+            if ENTRY_START <= t_et <= ENTRY_END:
+                raw = pullback[-1]["h"] + 0.01
+                stop = min(c["l"] for c in pullback)
+                if raw > stop:
+                    trade = {
+                        "symbol": sym, "date": day,
+                        "entry_time_et": t_et,
+                        "entry_px_raw": round(raw, 4),
+                        "entry_px": round(raw * (1 + SLIP), 4),
+                        "stop": round(stop, 4),
+                        "squeeze_high": round(squeeze_high, 4),
+                        "swing_low": round(swing_low, 4),
+                        "entry_bar_vol": b["v"],
+                        "pillars": detail,
+                    }
+                    entered = True
+                    prev = b
+                    continue
+            else:
+                disqualified, dq_reason = True, "trigger outside window"
+        if squeeze_high is None or (b["h"] > squeeze_high and (not pullback or crossing)):
+            # squeeze start/continuation, or resumption after a <2-candle dip
             squeeze_high = b["h"]
+            pullback = []
             if b["c"] > b["o"]:
                 move_green_vols.append(b["v"])
             if squeeze_high >= swing_low * (1 + SQUEEZE_PCT):
                 squeeze_active = True
         elif squeeze_active and not disqualified:
-            # in pullback territory
-            if pullback and b["h"] > pullback[-1]["h"] and len(pullback) >= 2:
-                # crossing candle -> entry
-                if ENTRY_START <= t_et <= ENTRY_END:
-                    raw = pullback[-1]["h"] + 0.01
-                    stop = min(c["l"] for c in pullback)
-                    if raw > stop:
-                        trade = {
-                            "symbol": sym, "date": day,
-                            "entry_time_et": t_et,
-                            "entry_px_raw": round(raw, 4),
-                            "entry_px": round(raw * (1 + SLIP), 4),
-                            "stop": round(stop, 4),
-                            "squeeze_high": round(squeeze_high, 4),
-                            "swing_low": round(swing_low, 4),
-                            "entry_bar_vol": b["v"],
-                            "pillars": detail,
-                        }
-                        entered = True
-                        prev = b
-                        continue
-                else:
-                    disqualified, dq_reason = True, "trigger outside window"
             pullback.append(b)
             retrace_den = squeeze_high - swing_low
             retrace = (squeeze_high - min(c["l"] for c in pullback)) / retrace_den if retrace_den > 0 else 0
@@ -261,6 +269,7 @@ def replay(sym, day, detail):
         fill = last["c"] * (1 - SLIP)
         trade["exit_time_et"] = et_hhmm(last["t"])
         trade["exit_reason"] = "data_end"
+        trade["exit_px_raw"] = round(last["c"], 4)
         trade["exit_px"] = round(fill, 4)
         trade["ret_pct"] = round((fill / trade["entry_px"] - 1) * 100, 2)
         trade.pop("slow_run", None)
@@ -279,7 +288,8 @@ def main():
     floats = load_json(FLOAT_CACHE_PATH, {})
     log = load_json(LOG_PATH, {"spec": "momentum_spec_v1.md", "trades": [], "scans": []})
 
-    if day == now.strftime("%Y-%m-%d") and now.strftime("%H:%M") < "20:16":
+    close_gate = f"{16 - et_offset(day):02d}:16"  # 16 min past the 16:00 ET close
+    if day == now.strftime("%Y-%m-%d") and now.strftime("%H:%M") < close_gate:
         print(f"{day} session incomplete (now {now.strftime('%H:%M')} UTC); "
               "run after 20:16 UTC for the full replay. Preview of live movers:")
         for rank, g in enumerate(movers(10), 1):
