@@ -65,6 +65,7 @@ def load_entries():
         out.append({
             "symbol": t["symbol"], "day": t["day"],
             "entry_px_raw": t["entry_px_raw"],
+            "stop": t["stop"],  # v1 pullback low, used by v3-pbstop variant
             "path": [{"t": et_hhmm(b["t"]), "o": b["o"], "h": b["h"], "l": b["l"],
                       "c": b["c"]} for b in bars[idx:]],
         })

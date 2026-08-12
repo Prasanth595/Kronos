@@ -50,14 +50,20 @@ os.makedirs(SCRATCH, exist_ok=True)
 
 
 def get_retry(url, **params):
-    for k in range(6):
-        r = requests.get(url, headers=HDR, params=params, timeout=90)
-        if r.status_code == 429:
+    last = None
+    for k in range(8):
+        try:
+            r = requests.get(url, headers=HDR, params=params, timeout=120)
+        except requests.exceptions.RequestException as e:  # timeouts, conn resets
+            last = e
+            time.sleep(3 * (k + 1))
+            continue
+        if r.status_code == 429 or r.status_code >= 500:
             time.sleep(4 * (k + 1))
             continue
         r.raise_for_status()
         return r.json()
-    raise RuntimeError("rate-limit retries exhausted: " + url)
+    raise RuntimeError(f"retries exhausted for {url}: {last}")
 
 
 def assets():
@@ -91,8 +97,13 @@ def scan():
     syms = assets()
     nchunks = (len(syms) + CHUNK - 1) // CHUNK
     print(f"scanning {len(syms)} symbols {SCAN_START}..{SCAN_END}", flush=True)
-    cands = []
+    # checkpoint so a mid-scan network failure doesn't discard completed chunks
+    ck_path = os.path.join(SCRATCH, "scan_partial.json")
+    ck = json.load(open(ck_path)) if os.path.exists(ck_path) else {"done": [], "cands": []}
+    cands = ck["cands"]
     for i in range(0, len(syms), CHUNK):
+        if i in ck["done"]:
+            continue
         params = dict(symbols=",".join(syms[i:i + CHUNK]), timeframe="1Day",
                       start=HIST_START, end=SCAN_END, adjustment="all",
                       feed="sip", limit=10000, sort="asc")
@@ -123,6 +134,9 @@ def scan():
                               "gap_pct": round((o / pc - 1) * 100, 1),
                               "open_px": o, "prev_close": pc,
                               "avg50": round(avg50, 1)})
+        ck["done"].append(i)
+        ck["cands"] = cands
+        json.dump(ck, open(ck_path, "w"))
         print(f"  chunk {i // CHUNK + 1}/{nchunks}: {len(cands)} raw candidates",
               flush=True)
     byday = {}
