@@ -26,7 +26,7 @@ import json
 import os
 import sys
 import time
-from datetime import datetime
+from datetime import datetime, timedelta
 
 import requests
 
@@ -38,9 +38,11 @@ SCRATCH = os.environ.get(
     "/tmp/claude-0/-home-user-Kronos/2f0190a1-7250-5bf8-81dd-e6806ae4a3ce/scratchpad/momo_bt",
 )
 HERE = os.path.dirname(os.path.abspath(__file__))
-HIST_START = "2025-04-01"  # extra runway for 50d averages
-SCAN_START = "2025-08-11"
-SCAN_END = "2026-08-08"
+SCAN_START = os.environ.get("MOMO_START", "2025-08-11")
+SCAN_END = os.environ.get("MOMO_END", "2026-08-08")
+# ~4 extra months of runway so the 50-day volume average is warm at SCAN_START
+HIST_START = (datetime.strptime(SCAN_START, "%Y-%m-%d")
+              - timedelta(days=130)).strftime("%Y-%m-%d")
 MAX_PER_DAY = 6
 CHUNK = 200
 
@@ -302,7 +304,9 @@ def stats():
     L.append("")
 
     L.append("## Time-half split")
-    mid = "2026-02-08"
+    mid = (datetime.strptime(SCAN_START, "%Y-%m-%d") + (
+        datetime.strptime(SCAN_END, "%Y-%m-%d")
+        - datetime.strptime(SCAN_START, "%Y-%m-%d")) / 2).strftime("%Y-%m-%d")
     for label, sel in (("H1 (2025-08..2026-02)", lambda t: t["day"] < mid),
                        ("H2 (2026-02..2026-08)", lambda t: t["day"] >= mid)):
         ts = [t for t in trades if sel(t)]
@@ -332,7 +336,8 @@ def stats():
 
     out = "\n".join(L)
     print(out)
-    with open(os.path.join(HERE, "momentum_bt_v1_results.md"), "w") as f:
+    tag = os.environ.get("MOMO_TAG", "v1")
+    with open(os.path.join(HERE, f"momentum_bt_{tag}_results.md"), "w") as f:
         f.write(out + "\n")
 
 
