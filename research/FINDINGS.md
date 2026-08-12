@@ -292,6 +292,53 @@ across all schemes; only exits differ. Mean return/trade at 0.5%/side:
   -36.9%). Sizing must assume a full-loss tail.
 - Detail: momentum_oos_summary.md, momentum_spec_v2.md, momentum_spec_v3.md.
 
+## 9c. MOMENTUM: SPEC-FAITHFUL SCAN + RUNNER TEST (2026-08-12)
+
+Rebuilt to follow momentum_daytrading_notes.md rather than my own tighter
+rules: EVERY pullback evaluated (not just the day's first), qualification
+computed INTRADAY (>=+10% vs prior close on >=5x cum volume inside
+07:00-10:00, so flat-open/news-squeeze names are included), no per-day cap.
+Candidate pool 1,213 -> 4,792 (OOS). Exits = spec v2. momentum_faithful.py.
+
+Frequency now matches how the strategy is actually traded:
+  OOS n=120 over 94 days = 2.3/week | IS n=189 over 140 days = 3.6/week
+
+Full faithful set, v2 exits (mean %/trade):
+                    @0.5%    @1.0%   ex-top5   WR
+  OOS  n=120        +0.99    +0.32    -0.18    68%
+  IS   n=189        +0.44    -0.24    -0.14    64%
+Roughly breakeven; does not survive 1%/side.
+
+Split by how many pullbacks were REJECTED before the entry taken:
+                       n    WR    p10    p25    med    p75    p90    mean
+  OOS 1st pullback    29   79%   -7.2   +3.5   +7.5  +14.4  +14.4   +5.70
+  OOS after failures  91   64%  -23.8   -7.8   +3.5  +11.4  +14.4   -0.52
+  IS  1st pullback    39   69%  -19.8   -4.6   +3.5  +11.4  +14.4   +1.25
+  IS  after failures 150   63%  -22.6  -10.0   +3.5  +11.4  +14.4   +0.23
+
+- p75/p90 are IDENTICAL across every bucket (+11.4/+14.4) because the v2
+  targets cap winners. ALL variation lives in the LEFT tail: p10 -7.2 for
+  OOS first pullbacks vs -22 to -24 everywhere else. The edge is loss
+  avoidance, not bigger wins.
+- First-pullback leads in both windows but robustness DISAGREES: OOS holds
+  (+5.05% at 1% costs, +3.62% ex-top5, both halves +); IS does not
+  (ex-top5 -0.83%, five symbols carry it). n=29/39 too thin to settle.
+- Source agreement: the notes title the setup "the First Pullback" and list
+  INLF - entered late after missing several pullbacks - as the biggest loser
+  and a "rookie mistake". An earlier claim in this project that Cameron
+  takes later pullbacks was a MISREADING of that passage.
+
+RUNNER TRANCHE: DEAD (momentum_runner_test.py, first-pullback entries).
+49/53 winners kept rising after the target filled (avg +53.6% further), so
+sell 75% at target and let 25% ride. Pooled n=68, mean %/trade @0.5%:
+  sell all +3.15 | trail 20% +1.62 | trail 30% +0.48 | trail 40% -0.65
+  trail 50% -1.06 | flat 10:00 +0.77 | hold to close -1.31
+Monotone: every runner variant is worse, and worse the wider the trail. Max
+trade does rise (+19.4 -> +34.8) so the tail is real, but the path is too
+violent - any trail wide enough to survive the noise gives back more on the
+other 90% of trades than it captures. Selling the whole position at the
+target is the best exit tested.
+
 ## 10. CONDITIONAL PROBABILITIES OF THE OPEN (2026-07-16)
 
 ### 10a. 2×2 Open States: {prev day up/down} × {gap up/down}
