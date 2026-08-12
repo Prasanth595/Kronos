@@ -256,6 +256,42 @@ EXTERNAL VALIDATION: a public 9,120-backtest / 30-asset / 2010-2025 survivor ter
   Momentum (trend), best Sharpes 1.0-1.18, scored by cross-asset survival count. Same two
   families, same replication discipline, same realistic Sharpe range we converged on.
 
+## 9b. MOMENTUM EXITS: OUT-OF-SAMPLE TEST (2026-08-12)
+
+Specs v2/v3 pre-registered and committed BEFORE the OOS window was opened.
+IS = 2025-08..2026-08 (n=98). OOS = 2024-08..2025-08 (n=71). Same entries
+across all schemes; only exits differ. Mean return/trade at 0.5%/side:
+
+  scheme                    IS       OOS     OOS pre-reg criteria
+  v2 dip-conditioned TP   +5.23%   +3.61%   ALL 5 PASS
+  control flat +10%       +2.98%   -0.66%   FAIL
+  v3 ladder (dipcond)     +1.19%   +1.04%   FAIL (ex-top5)
+  v3 ladder (nostop)      +1.03%   +0.31%   FAIL
+  v3 ladder (pbstop)      -1.54%   -1.81%   FAIL
+  v1 indicator exits      -1.06%   -1.05%   FAIL
+
+- v1 REPLICATED exactly OOS (-0.105 R/trade both windows, WR 32.3/31.0%).
+  The entry engine and its cost problem are both stable.
+- v2 = no stop, take-profit limit ratcheting DOWN with the running post-entry
+  dip (20/15/12/8/4 at 0/2/5/10/20% dip), flat 10:00 ET. OOS: WR 75%,
+  med +7.46%, +2.99% at 1%/side, +2.41% ex-top5, both halves positive.
+- FRAGILITY: every perturbation KEEPING the dip-conditioning stays positive
+  (+1.6 to +5.2%); every variant REMOVING it collapses (+0.3 / -0.0 / -0.7%).
+  The conditioning is load-bearing, not the breakpoints. The untuned flat
+  control passed IS and failed OOS -> the control was the fitted thing.
+- LADDERED SCALE-OUT (user idea, v3) FAILS both windows: selling 25% at +5%
+  caps the tranche that must pay for losers, and the breakeven ratchet exits
+  during the very shakeout the recovery needs. Third independent confirmation
+  that a pullback-low stop is the most damaging choice on this pattern.
+- SURVIVORSHIP MEASURED, not assumed: rescanned 1,322 delisted non-OTC names
+  over the OOS window -> 36 candidate days, 2 valid entries, BOTH winners
+  (+14.4% each under v2). Missing delisted population does not appear to hide
+  catastrophic no-stop losses (n=2, weak but directionally reassuring).
+- NOT established: real fill quality (limits assumed to fill AT target), halt
+  behaviour, and the no-stop tail (25% of trades lose, 18% lose >=10%, worst
+  -36.9%). Sizing must assume a full-loss tail.
+- Detail: momentum_oos_summary.md, momentum_spec_v2.md, momentum_spec_v3.md.
+
 ## 10. CONDITIONAL PROBABILITIES OF THE OPEN (2026-07-16)
 
 ### 10a. 2×2 Open States: {prev day up/down} × {gap up/down}

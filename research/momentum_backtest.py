@@ -67,6 +67,13 @@ def get_retry(url, **params):
 
 
 def assets():
+    # MOMO_UNIVERSE lets a caller supply an explicit symbol list (e.g. the
+    # DELISTED universe, for measuring survivorship bias).
+    override = os.environ.get("MOMO_UNIVERSE")
+    if override:
+        syms = json.load(open(override))
+        print(f"assets: {len(syms)} symbols from {override}", flush=True)
+        return syms
     path = os.path.join(SCRATCH, "assets.json")
     if os.path.exists(path):
         return json.load(open(path))
