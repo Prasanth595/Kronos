@@ -339,6 +339,53 @@ violent - any trail wide enough to survive the noise gives back more on the
 other 90% of trades than it captures. Selling the whole position at the
 target is the best exit tested.
 
+## 9d. MOMENTUM: THE EXIT IS A TRAILING STOP, NOT A TARGET (2026-08-12)
+
+Chasing the observation that big runners barely pull back after the target
+fills (DFDV -6.3%, TRON +5.2%) while duds give back 30-50%. Earlier runner
+test only went DOWN to a 20% trail and concluded "runner dead". That was the
+wrong direction. Tighter trails reverse the conclusion.
+
+Exit = hold until price touches the v2 dip-conditioned level, then TRAIL
+instead of selling. 100% of position trailed. mean %/trade, 0.5%/side,
+"thru" = extra % the fill slips beyond the stop (intrabar reality):
+
+  ALL entries (OOS n=120, IS n=189, pool 309)
+  trail  thru     OOS      IS    POOL    @1%   max
+  sellall  0%   +0.99   +0.44   +0.65  -0.02  +19.4
+  2%       0%   +3.82   +3.59   +3.68  +2.65 +244.2
+  2%       2%   +2.40   +2.26   +2.31  +1.30 +237.3
+  2%       5%   +0.28   +0.25   +0.26  -0.73 +226.9
+  3%       0%   +3.11   +3.05   +3.07  +2.05 +240.6
+  3%       2%   +1.71   +1.73   +1.72  +0.71 +233.8
+  5%       2%   +0.52   +0.60   +0.57  -0.43 +226.9
+  8%       2%   -0.89   -0.56   -0.69  -1.68 +216.6
+  12%      2%   -3.22   -1.61   -2.23  -3.20 +202.9
+
+- 5-6x the fixed-target expectancy, and the two windows agree to within
+  0.25pt at every trail width (n=309 pooled). That cross-window agreement is
+  far stronger than the first-pullback split (n=68), which disagrees.
+- IT CAPTURES THE TAIL: max trade +19.4% -> +244%. This is the mechanism for
+  the growth candidates the fixed target was cutting off.
+- Runner fraction is monotone: 0/25/50/75/100% -> +0.65/+1.08/+1.52/+1.95/
+  +2.39. Sell none of it at the target.
+- Hold-to-close == flat-10:00 (+1.70 vs +1.72). The 10:00 rule costs nothing.
+- BINDING CONSTRAINT IS FILL QUALITY, not the rule. At thru=0% every trail
+  2-5% is strongly positive; at thru=5% all of it dies. A 2-3% trail on a $3
+  small cap is inside the spread on many of these names. The backtest CANNOT
+  resolve this - only live fills can. This is now the single most important
+  thing for the forward paper log to measure.
+- SOURCE AGREEMENT: the notes say "DO NOT CAP WINNERS... hold until an exit
+  indicator appears" (topping tail, red candle, buying slowing). Those
+  indicators ARE a discretionary tight trailing stop. Our fixed target was
+  the thing the source explicitly warns against, and v1's best components
+  were exactly the weakness-exits (topping_tail +0.82R, material_red +0.80R).
+  Data and source now agree: no pullback-low stop, no fixed target, exit on
+  the first sign of weakness.
+- Weak/no predictors of run size: dip depth, entry time, n_dq. Mild: cheaper
+  stocks and WIDER pullback risk run further (risk_pct Q4 34% ran >50% vs Q1
+  17%; price >$8.3 only 13%). momentum_runner_forensics.py.
+
 ## 10. CONDITIONAL PROBABILITIES OF THE OPEN (2026-07-16)
 
 ### 10a. 2×2 Open States: {prev day up/down} × {gap up/down}
