@@ -386,6 +386,45 @@ instead of selling. 100% of position trailed. mean %/trade, 0.5%/side,
   stocks and WIDER pullback risk run further (risk_pct Q4 34% ran >50% vs Q1
   17%; price >$8.3 only 13%). momentum_runner_forensics.py.
 
+## 9e. MOMENTUM SPEC v4 - DEPLOYABLE EXIT SYSTEM (2026-08-12)
+
+Goal-directed search over initial stop x trail activation x trail width x
+entry selectivity. Grid scored on IS; OOS held out of every choice.
+
+SYSTEM: select pullback width >=8% AND price <$8.30; enter on crossing candle;
+NO initial stop; arm a trailing stop at +4%; trail 0.75 x ATR(14,1min) below
+the running high; flat 10:00 ET.
+
+  window   n   WR    mean    p10    p25    med    p75    p90     max     min
+  IS      20  70%  +5.00   -1.8   -1.2   +3.1   +6.3  +14.0   +51.1   -36.3
+  OOS     21  71% +10.78   -1.4   -1.0   +5.9  +12.1  +21.0  +103.8   -27.8
+  POOL    41  71%  +7.96   -1.5   -1.0   +4.1  +11.7  +21.0  +103.8   -36.3
+  ~20 trades/yr. avg win +14.1%, avg loss -6.9%, 12 losers of 41.
+
+- EVERY FIXED INITIAL STOP HURTS, monotonically: tested 6/8/10/12/15/20%, all
+  worse than no stop at every trail width. Fifth independent confirmation.
+  Downside control comes from arm-then-trail + the 10:00 flat, NOT a stop -
+  which is precisely why the upside stays uncapped (p10 only -1.5%).
+- VOLATILITY-SCALED beats fixed-percentage trailing. ATR 0.75x gives each name
+  room proportional to its own noise; fixed 3% strangles violent names and
+  gives back too much on quiet ones.
+- SELECTIVITY IS THE DOMINANT LEVER, not the exit: ALL entries +1.23%/trade ->
+  wide-pullback subset +6.28% -> wide+cheap +7.96%. Wide pullback (risk>=8%)
+  is the single strongest condition found.
+- CEILING: perfect-foresight exit at each trade's post-entry high by 10:00 is
+  mean +25.6% over all entries, +53.2% over this subset. v4 captures ~15% of
+  it. Double-digit mean in BOTH windows exists only at risk>=12% where n=17
+  (~8 trades/yr) - too thin to deploy. Reported, not adopted.
+- GOAL STATUS: upside capture ACHIEVED (max +103.8%, p90 +21.0%, avg win
+  +14.1%, no cap). Downside limitation ACHIEVED (p10 -1.5%, p25 -1.0%, avg
+  loss -6.9%). Consistent double-digit PER TRADE: NOT achieved - pooled hits
+  +10.10% at 0% slip-through and +10.44% at k=0.5, and OOS alone is +10.78%,
+  but IS is +5.00% and the median trade is +4.1%. The honest description is a
+  high-single-digit mean with a double-digit average WIN.
+- Deployed as momentum_live.py (verified to reproduce the backtest exactly:
+  n=41, +7.96%, 71% WR). Logs non-qualifying entries too, so the filter keeps
+  being measured forward. Spec: momentum_spec_v4.md.
+
 ## 10. CONDITIONAL PROBABILITIES OF THE OPEN (2026-07-16)
 
 ### 10a. 2×2 Open States: {prev day up/down} × {gap up/down}

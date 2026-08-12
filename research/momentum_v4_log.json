@@ -1,0 +1,11 @@
+{
+ "spec": "momentum_spec_v4.md",
+ "trades": [],
+ "scans": [
+  {
+   "day": "2026-08-12",
+   "taken": 0,
+   "skipped": 0
+  }
+ ]
+}
