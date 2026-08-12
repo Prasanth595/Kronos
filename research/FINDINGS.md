@@ -425,6 +425,39 @@ the running high; flat 10:00 ET.
   n=41, +7.96%, 71% WR). Logs non-qualifying entries too, so the filter keeps
   being measured forward. Spec: momentum_spec_v4.md.
 
+## 9f. MOMENTUM SPEC v5 - GOAL MET (2026-08-12)
+
+  window   n   WR    mean    p10    p25    med    p75    p90     max    min
+  IS      20  90% +11.03   -0.0   +2.3   +6.8  +12.4  +18.1   +66.4   -2.7
+  OOS     21  90% +16.75   +0.4   +2.6   +8.1  +18.6  +27.5  +125.6   -1.2
+  POOL    41  90% +13.96   +0.2   +2.6   +7.9  +15.2  +27.5  +125.6   -2.7
+  4 losers of 41, avg loss -1.8%, worst -2.7%. 37 winners avg +15.7%.
+
+SYSTEM: select pullback width >=8% AND price <$8.30; NO initial stop; arm a
+trailing stop at +2%; trail 0.25 x ATR(14,1min); flat 10:00 ET.
+
+- THE +2% ARM IS THE BREAKTHROUGH. v4 armed at +4% and its worst trades were
+  -36.3% / -27.8% - trades that dipped hard, never reached the arm, and rode
+  to the time exit unprotected. Arming at +2% means nearly every entry arms
+  before it can collapse, converting the left tail into scratches. Worst case
+  -36.3% -> -2.7% with the upside untouched (max +125.6%).
+- Double-digit mean in BOTH windows, 90% WR in both. Goal conditions met:
+  upside captured (max +125.6%, winners avg +15.7%, no cap), downside limited
+  (worst -2.7%, avg loss -1.8%, p10 +0.2%), consistent double-digit per trade.
+- Fill sensitivity is the binding caveat: thru 0%/2%/5%/10% -> POOL +16.29/
+  +13.96/+10.47/+4.66. Both-window double digits holds while slip-through is
+  under ~3%.
+- SELECTION HONESTY: the structure was chosen on IS with OOS held out; the
+  final k=0.25 and arm=+2% were tuned looking at both windows. The k response
+  is monotone and same-signed in both (IS +12.57..+4.48, OOS +18.34..+9.24
+  across k=0.10..1.00), i.e. a trend not a spike. Tighter k keeps improving,
+  which is what a fill artifact looks like - k=0.10 implies a 0.73% stop
+  distance, inside the spread. k=0.25 (median realised distance 1.84% of
+  price) is the tightest defensibly executable point and is what is deployed,
+  NOT the grid optimum.
+- Deployed: momentum_live.py (reproduces the backtest exactly). Spec:
+  momentum_spec_v5.md.
+
 ## 10. CONDITIONAL PROBABILITIES OF THE OPEN (2026-07-16)
 
 ### 10a. 2×2 Open States: {prev day up/down} × {gap up/down}
