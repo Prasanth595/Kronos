@@ -250,6 +250,93 @@
     "float_unknown": true,
     "catalyst_waived": false
    }
+  },
+  {
+   "symbol": "XHG",
+   "date": "2026-08-13",
+   "no_trade": true,
+   "dq_reason": "retrace>50%",
+   "pillars": {
+    "symbol": "XHG",
+    "day": "2026-08-13",
+    "pct_gain": 348.1,
+    "price": 4.1,
+    "gainer_rank": 1,
+    "gap_pct": 533.9,
+    "relvol": 2424.6,
+    "volume": 85017077,
+    "float": null,
+    "float_unknown": true,
+    "catalyst_waived": true
+   }
+  },
+  {
+   "symbol": "FGI",
+   "date": "2026-08-13",
+   "no_trade": true,
+   "dq_reason": "retrace>50%",
+   "pillars": {
+    "symbol": "FGI",
+    "day": "2026-08-13",
+    "pct_gain": 147.8,
+    "price": 11.72,
+    "gainer_rank": 4,
+    "gap_pct": 79.1,
+    "relvol": 2021.4,
+    "volume": 101581484,
+    "float": null,
+    "float_unknown": true,
+    "catalyst_waived": false
+   }
+  },
+  {
+   "symbol": "DFSC",
+   "date": "2026-08-13",
+   "no_trade": true,
+   "dq_reason": "retrace>50%",
+   "pillars": {
+    "symbol": "DFSC",
+    "day": "2026-08-13",
+    "pct_gain": 86.3,
+    "price": 2.31,
+    "gainer_rank": 6,
+    "gap_pct": 108.1,
+    "relvol": 1512.2,
+    "volume": 112562726,
+    "float": null,
+    "float_unknown": true,
+    "catalyst_waived": false
+   }
+  },
+  {
+   "symbol": "CURI",
+   "date": "2026-08-13",
+   "entry_time_et": "09:39",
+   "entry_px_raw": 3.89,
+   "entry_px": 3.9094,
+   "stop": 3.79,
+   "squeeze_high": 3.9,
+   "swing_low": 3.43,
+   "entry_bar_vol": 117800,
+   "pillars": {
+    "symbol": "CURI",
+    "day": "2026-08-13",
+    "pct_gain": 42.5,
+    "price": 3.99,
+    "gainer_rank": 21,
+    "gap_pct": 27.9,
+    "relvol": 47.5,
+    "volume": 20256402,
+    "float": null,
+    "float_unknown": true,
+    "catalyst_waived": false
+   },
+   "exit_time_et": "09:46",
+   "exit_reason": "stop",
+   "exit_px_raw": 3.7521,
+   "exit_px": 3.7333,
+   "ret_pct": -4.5,
+   "r_multiple": -1.12
   }
  ],
  "scans": [
@@ -262,6 +349,11 @@
    "day": "2026-08-12",
    "n_gainers": 25,
    "n_candidates": 3
+  },
+  {
+   "day": "2026-08-13",
+   "n_gainers": 25,
+   "n_candidates": 7
   }
  ]
 }

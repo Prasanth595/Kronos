@@ -98,6 +98,10 @@ def check_pillars(sym, day, pct_gain, price, rank, floats, end_s):
     """Return (passes, detail dict). Uses daily bars for relvol + gap."""
     d = {"symbol": sym, "day": day, "pct_gain": round(pct_gain, 1), "price": price,
          "gainer_rank": rank}
+    # common stock only: skip preferreds/warrants/units/rights (mirror backtest)
+    if "." in sym or "/" in sym or (len(sym) == 5 and sym[-1] in "WRU"):
+        d["reject"] = "not common stock"
+        return False, d
     if not (PRICE_MIN <= price <= PRICE_MAX):
         return False, d
     if pct_gain < MIN_GAIN:
