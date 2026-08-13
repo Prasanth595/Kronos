@@ -1,0 +1,57 @@
+{
+ "spec": "momentum_spec_v5.md",
+ "trades": [
+  {
+   "symbol": "FGI",
+   "day": "2026-08-13",
+   "entry_time_et": "07:03",
+   "entry_px_raw": 8.18,
+   "pullback_low": 7.8,
+   "risk_pct": 4.65,
+   "n_dq_before": 0,
+   "float": null,
+   "gainer_rank": 4,
+   "exit_time_et": "07:09",
+   "exit_reason": "atr_trail",
+   "ret_pct": -0.92,
+   "v5_qualified": false
+  },
+  {
+   "symbol": "DFSC",
+   "day": "2026-08-13",
+   "entry_time_et": "09:18",
+   "entry_px_raw": 2.1997,
+   "pullback_low": 2.1,
+   "risk_pct": 4.53,
+   "n_dq_before": 2,
+   "float": null,
+   "gainer_rank": 6,
+   "exit_time_et": "09:24",
+   "exit_reason": "atr_trail",
+   "ret_pct": 6.69,
+   "v5_qualified": false
+  },
+  {
+   "symbol": "CURI",
+   "day": "2026-08-13",
+   "entry_time_et": "09:34",
+   "entry_px_raw": 3.78,
+   "pullback_low": 3.65,
+   "risk_pct": 3.44,
+   "n_dq_before": 6,
+   "float": null,
+   "gainer_rank": 21,
+   "exit_time_et": "09:40",
+   "exit_reason": "atr_trail",
+   "ret_pct": -0.46,
+   "v5_qualified": false
+  }
+ ],
+ "scans": [
+  {
+   "day": "2026-08-13",
+   "taken": 0,
+   "skipped": 3
+  }
+ ]
+}
