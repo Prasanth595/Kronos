@@ -246,7 +246,7 @@ All settings for data, training, and model paths are centralized in `finetune/co
 *   `backtest_result_path`: Directory for saving backtesting results.
 *   `pretrained_tokenizer_path` and `pretrained_predictor_path`: Paths to the pre-trained models you want to start from (can be local paths or Hugging Face model names).
 
-You can also adjust other parameters like `instrument`, `train_time_range`, `epochs`, and `batch_size` to fit your specific task. If you don't use [Comet.ml](https://www.comet.com/), set `use_comet = False`.
+You can also adjust other parameters like `instrument`, `train_time_range`, `epochs`, and `batch_size` to fit your specific task. [Comet.ml](https://www.comet.com/) logging is disabled by default. To enable it, install `comet_ml`, set `use_comet = True`, and configure the Comet credentials in `config.py`.
 
 ### Step 2: Prepare the Dataset
 
