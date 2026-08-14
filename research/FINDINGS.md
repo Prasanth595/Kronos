@@ -503,6 +503,46 @@ Caveat unchanged: the exit parameters were tuned on data overlapping these
 windows, and fills remain the binding assumption. Width >=8% remains the
 strongest single conviction marker (+12.08%/trade, 91% WR, n=55).
 
+## 9h. CORRECTED CAMERON BACKTEST - clean, no optimization (2026-08-14)
+
+Definitional fixes toward the source, no new filters, frozen exit:
+pullback requires >=2 completed candles (1-min hesitations no longer count);
+crossing candle = break of the PRIOR candle's high (source definition; the
+old code required a full leg-high break, which was stricter than the source
+and acted as an accidental confirmation filter). Dynamic intraday
+qualification, $2-20, no caps, no price/width filters. Exit frozen at
+arm +2% / 0.25xATR / flat 10:00, applied as-is.
+
+  OOS 2024-25: 109 entries -> 21 first-pullback (0.4/wk) + 88 later (1.7/wk)
+  IS  2025-26: 182 entries -> 32 first-pullback (0.6/wk) + 150 later (2.9/wk)
+
+FIRST-PULLBACK raw movement (no exit rules):
+                     OOS(21)              IS(32)
+  MFE by 10:00 med   +26.0%               +15.5%
+  MAE by 10:00 med   -28.2%               -16.6%
+  day-high hits      +10%:76% +20%:62%    +10%:75% +20%:53%
+  at 10:00 med       -15.5%               +0.1%
+
+FROZEN EXIT on first-pullback: OOS +1.97%/trade (WR 62%, min -65.3%),
+IS +2.72% (WR 56%, min -24.3%). Pooled n=53: +2.42%, med +0.7%, WR 58%.
+Later pullbacks: OOS +0.11%, IS +1.41%.
+
+READING, recorded without retuning anything:
+- All four groups remain positive under the frozen exit, but well below the
+  numbers reported before the corrections. The old leg-high-break trigger
+  entered LATER with confirmation; the source-correct prior-candle-high
+  trigger enters mid-pullback and catches more falling knives (OOS fp med
+  MAE -28.2%, one -65.3% trade through the unarmed no-stop window).
+- The definitional corrections REDUCED measured performance. The prior
+  +5.74%/309 result partly reflected an unintended confirmation filter.
+  This entry-trigger sensitivity (prior-candle-high vs leg-high break) is
+  now the most consequential open question in the strategy, and per user
+  instruction it is logged, not optimized.
+- True first-pullback frequency ~0.5/wk pooled - still below the source's
+  several-per-week. Remaining gap candidates: relvol >=5x vs 50d avg is
+  harsh on recently-active names, catalyst pillar unchecked, one entry per
+  ticker-day. Logged for audit, unchanged.
+
 ## 10. CONDITIONAL PROBABILITIES OF THE OPEN (2026-07-16)
 
 ### 10a. 2×2 Open States: {prev day up/down} × {gap up/down}

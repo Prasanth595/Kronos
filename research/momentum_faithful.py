@@ -148,22 +148,24 @@ def replay(c, bars):
                 green_vols = [b["v"]]
             continue
         # ---- track legs and pullbacks ----
+        # Crossing candle per the SOURCE definition: the first candle to break
+        # the PRIOR candle's high, after a pullback of >= 2 completed candles
+        # (a one-minute hesitation is not a pullback). Checked before the
+        # new-leg-high branch so a mid-pullback crossing triggers the entry.
+        if (pull and not pull_dead and len(pull) >= 2
+                and b["h"] > pull[-1]["h"] and t <= ENTRY_END):
+            raw = pull[-1]["h"] + 0.01
+            stop = min(x["l"] for x in pull)
+            if raw > stop:
+                return {"symbol": c["symbol"], "day": c["day"],
+                        "entry_time_et": t, "entry_px_raw": round(raw, 4),
+                        "stop": round(stop, 4), "n_dq_before": n_dq,
+                        "pullback_candles": len(pull),
+                        "path": [{"t": et_hhmm(x["t"]), "o": x["o"], "h": x["h"],
+                                  "l": x["l"], "c": x["c"]} for x in bars[i:]]}, "entry"
         if b["h"] > leg_high:
-            if pull and not pull_dead and len(pull) >= 1 and t <= ENTRY_END:
-                # crossing candle on a VALID pullback -> ENTRY
-                raw = pull[-1]["h"] + 0.01
-                stop = min(x["l"] for x in pull)
-                if raw > stop:
-                    return {"symbol": c["symbol"], "day": c["day"],
-                            "entry_time_et": t, "entry_px_raw": round(raw, 4),
-                            "stop": round(stop, 4), "n_dq_before": n_dq,
-                            "path": [{"t": et_hhmm(x["t"]), "o": x["o"], "h": x["h"],
-                                      "l": x["l"], "c": x["c"]} for x in bars[i:]]}, "entry"
-            # new leg high; reset pullback state
-            if pull_dead or not pull:
-                pass
-            if pull:
-                n_dq += 1 if pull_dead else 0
+            # squeeze continues (or resumes after a <2-candle hesitation or a
+            # disqualified pullback; n_dq is counted at disqualification time)
             leg_high = b["h"]
             pull = []
             pull_dead = False
@@ -219,7 +221,7 @@ def v2_exit(tr, slip=SLIP):
 
 
 def replays():
-    path = os.path.join(SCRATCH, "res_faithful.json")
+    path = os.path.join(SCRATCH, os.environ.get("MOMO_RESFILE", "res_faithful.json"))
     done = json.load(open(path)) if os.path.exists(path) else {"items": [], "seen": []}
     seen = {tuple(x) for x in done["seen"]}
     cands = scan()
