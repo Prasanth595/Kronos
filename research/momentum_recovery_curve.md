@@ -73,3 +73,25 @@ Share of legs advancing >= threshold:
 Windows: med/p90 OOS vs IS agree within ~1pt at X2/X5/X10; X20 thin (30/39).
 Note: advance is measured next-peak vs recovered-peak, so it is positive by
 construction; p5 ~ +0.5% means 1 in 20 legs barely extends past the old high.
+
+## D3. Order differentiation (added on request)
+
+P(recover) and next-leg advance by ORDER of the retracement within the day,
+at fixed reporting scales:
+
+X=2%:  k=1 85% | k=2 83% | k=3 78% | k4+ 81%   adv med +3.6/+4.2/+3.8/+3.5
+X=5%:  k=1 78% | k=2 79% | k=3 78% | k4+ 78%   adv med +4.1/+5.3/+4.0/+4.8
+X=10%: k=1 68% | k=2 62% | k=3 65% | k4+ 71%   adv med +7.3/+7.0/+9.1/+8.7
+
+Depth-band control (X=5 events): within every depth band, order is flat
+(e.g. 20%+: 41/46/39% for k=1/2/3). ORDER CARRIES NO MEASURABLE
+INFORMATION ONCE DEPTH IS KNOWN; depth is the sufficient statistic among
+the variables measured.
+
+CAUTION on the depth-band numbers (5-8%: ~99-100% recover; 12-20%: ~90-96%;
+20%+: ~40%): banding on an episode's FINAL depth is ex-post conditioning -
+an episode "ends" shallow mostly because it recovered, and failures keep
+deepening (terminal med 37%). The knowable-in-real-time object remains the
+survival curve P(recover | depth has REACHED X), section B. The band table's
+legitimate reading: failures are almost never shallow - if a retracement is
+going to kill the day, it does so by cutting deep, not by stalling small.
