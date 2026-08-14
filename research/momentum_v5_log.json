@@ -45,6 +45,21 @@
    "exit_reason": "atr_trail",
    "ret_pct": -0.46,
    "v5_qualified": false
+  },
+  {
+   "symbol": "WETO",
+   "day": "2026-08-14",
+   "entry_time_et": "07:46",
+   "entry_px_raw": 11.4,
+   "pullback_low": 10.8103,
+   "risk_pct": 5.17,
+   "n_dq_before": 1,
+   "float": null,
+   "gainer_rank": 3,
+   "exit_time_et": "09:57",
+   "exit_reason": "atr_trail",
+   "ret_pct": 8.39,
+   "v5_qualified": false
   }
  ],
  "scans": [
@@ -52,6 +67,11 @@
    "day": "2026-08-13",
    "taken": 0,
    "skipped": 3
+  },
+  {
+   "day": "2026-08-14",
+   "taken": 0,
+   "skipped": 1
   }
  ]
 }

@@ -337,6 +337,112 @@
    "exit_px": 3.7333,
    "ret_pct": -4.5,
    "r_multiple": -1.12
+  },
+  {
+   "symbol": "WETO",
+   "date": "2026-08-14",
+   "no_trade": true,
+   "dq_reason": "retrace>50%",
+   "pillars": {
+    "symbol": "WETO",
+    "day": "2026-08-14",
+    "pct_gain": 127.7,
+    "price": 8.22,
+    "gainer_rank": 3,
+    "gap_pct": 195.0,
+    "relvol": 152.4,
+    "volume": 58666250,
+    "float": null,
+    "float_unknown": true,
+    "catalyst_waived": true
+   }
+  },
+  {
+   "symbol": "CAPR",
+   "date": "2026-08-14",
+   "no_trade": true,
+   "dq_reason": "retrace>50%",
+   "pillars": {
+    "symbol": "CAPR",
+    "day": "2026-08-14",
+    "pct_gain": 58.0,
+    "price": 6.65,
+    "gainer_rank": 7,
+    "gap_pct": 81.9,
+    "relvol": 17.9,
+    "volume": 65827448,
+    "float": null,
+    "float_unknown": true,
+    "catalyst_waived": false
+   }
+  },
+  {
+   "symbol": "HHS",
+   "date": "2026-08-14",
+   "no_trade": true,
+   "dq_reason": "retrace>50%",
+   "pillars": {
+    "symbol": "HHS",
+    "day": "2026-08-14",
+    "pct_gain": 53.0,
+    "price": 4.3,
+    "gainer_rank": 9,
+    "gap_pct": 50.5,
+    "relvol": 704.6,
+    "volume": 4639677,
+    "float": null,
+    "float_unknown": true,
+    "catalyst_waived": false
+   }
+  },
+  {
+   "symbol": "AEYE",
+   "date": "2026-08-14",
+   "entry_time_et": "09:34",
+   "entry_px_raw": 6.63,
+   "entry_px": 6.6631,
+   "stop": 6.6,
+   "squeeze_high": 6.74,
+   "swing_low": 5.8782,
+   "entry_bar_vol": 1738,
+   "pillars": {
+    "symbol": "AEYE",
+    "day": "2026-08-14",
+    "pct_gain": 37.5,
+    "price": 7.99,
+    "gainer_rank": 17,
+    "gap_pct": 6.5,
+    "relvol": 8.2,
+    "volume": 955341,
+    "float": null,
+    "float_unknown": true,
+    "catalyst_waived": false
+   },
+   "exit_time_et": "09:35",
+   "exit_reason": "stop",
+   "exit_px_raw": 6.534,
+   "exit_px": 6.5013,
+   "ret_pct": -2.43,
+   "r_multiple": -1.25
+  },
+  {
+   "symbol": "EMAT",
+   "date": "2026-08-14",
+   "no_trade": true,
+   "dq_reason": "retrace>50%",
+   "pillars": {
+    "symbol": "EMAT",
+    "day": "2026-08-14",
+    "pct_gain": 34.1,
+    "price": 3.03,
+    "gainer_rank": 23,
+    "gap_pct": 8.0,
+    "relvol": 29.9,
+    "volume": 3509457,
+    "float": null,
+    "float_unknown": true,
+    "catalyst_waived": false
+   }
   }
  ],
  "scans": [
@@ -354,6 +460,11 @@
    "day": "2026-08-13",
    "n_gainers": 25,
    "n_candidates": 7
+  },
+  {
+   "day": "2026-08-14",
+   "n_gainers": 25,
+   "n_candidates": 5
   }
  ]
 }
