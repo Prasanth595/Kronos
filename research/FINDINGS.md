@@ -458,6 +458,51 @@ trailing stop at +2%; trail 0.25 x ATR(14,1min); flat 10:00 ET.
 - Deployed: momentum_live.py (reproduces the backtest exactly). Spec:
   momentum_spec_v5.md.
 
+## 9g. CORRECTION + MASTER TABLE (2026-08-14, user audit)
+
+User review identified a framing error that stands corrected in this ledger:
+
+- n=41 ("v5") is a CLAUDE-ADDED optimization subset (price <$8.30 AND
+  pullback width >=8%) applied AFTER the Cameron entry. Neither condition is
+  a source pillar (source price band is $2-20; the >=8% width rule does not
+  exist in the source). 41/309 = 13% of base entries. Statements reading
+  "the strategy trades ~20x/yr" or "the strategy returns +14%/trade" were
+  category errors: those numbers describe the subset. The BASE strategy
+  trades ~3.0/week.
+- Also logged: in momentum_faithful.py the crossing-candle entry accepts a
+  1-candle pullback (spec v1 required >=2). Open audit item; pullback length
+  is not stored, needs a re-replay to add.
+
+MASTER TABLE (momentum_master_table.csv, built by momentum_master_table.py):
+all 309 base entries, one row each, descriptive columns + boolean flags
+(first_pullback, price_lt_8_30, pullback_width_ge_8, v5_qualified). Filters
+are columns, never row-removal.
+
+Summary with the v5 exit (no stop, arm +2%, 0.25xATR trail, flat 10:00)
+applied uniformly to every group:
+
+  group                    n   /wk  medMFE10 medMAE10 hit10 hit20  mean   med   WR
+  ALL base entries       309   3.0    +15.1   -18.6    67%   47%  +5.74  +2.1  74%
+  first pullback          68   0.7    +16.8   -24.9    68%   50%  +7.31  +4.6  79%
+  price < 8.30           230   2.2    +15.7   -18.9    69%   49%  +6.11  +2.5  77%
+  width >= 8%             55   0.5    +23.6   -32.4    75%   62% +12.08  +7.5  91%
+  v5 subset               41   0.4    +25.6   -31.2    76%   66% +13.96  +8.0  90%
+  NOT v5 (the skipped)   268   2.6    +13.3   -16.8    66%   44%  +4.48  +1.9  72%
+  OOS window             120   1.2                               +6.45        76%
+  IS window              189   1.8                               +5.29        74%
+
+THE VERDICT ON THE FILTER: the 268 skipped trades earn +4.48%/trade at 72%
+WR under the same exit. The filter raises the per-trade mean (+13.96 vs
++5.74) but discards ~2/3 of total return: sum over v5-only ~= +572% vs
+~= +1774% over all base entries (equal per-trade sizing). The subset is a
+sizing/conviction tier, NOT the strategy. Base strategy at natural
+frequency, with the v5 exit, is positive in both windows (+6.45 OOS /
++5.29 IS) - and that, not the 41-trade subset, is the headline result.
+
+Caveat unchanged: the exit parameters were tuned on data overlapping these
+windows, and fills remain the binding assumption. Width >=8% remains the
+strongest single conviction marker (+12.08%/trade, 91% WR, n=55).
+
 ## 10. CONDITIONAL PROBABILITIES OF THE OPEN (2026-07-16)
 
 ### 10a. 2×2 Open States: {prev day up/down} × {gap up/down}
