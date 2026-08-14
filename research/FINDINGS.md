@@ -580,6 +580,48 @@ Analysis: momentum_transitions.py / momentum_transitions.md. Next step per
 user: design an exit/re-entry policy around these measured junctions and
 backtest it SEPARATELY.
 
+## 9j. THE RECOVERY CURVE - threshold-free (2026-08-14)
+
+Re-measured per user methodology: zero-threshold episodes (every dip below a
+running high is an event; 2,201 episodes across 291 ticker-days), depth grid
+as REPORTING cuts only, event- and day-weighted, ticker-day cluster
+bootstrap. Supersedes the single-threshold framing of 9i: the "flat 78%" was
+one point on a smooth curve read at one scale. Depth, not pullback order, is
+the variable that matters. "Memoryless" is withdrawn as a claim.
+
+P(new high | retracement reached >= X%), event-weighted [95% CI], day-wtd:
+   X%    n     event-wtd            day-wtd   t.rec med
+    2   1892   84.9 [83.0,86.4]      66.6        1m
+    5   1341   78.7 [76.3,80.7]      58.0        3m
+    8    969   70.8 [67.9,73.3]      49.5        7m
+   10    807   65.4 [62.2,68.4]      45.3        9m
+   12    680   59.3 [55.7,62.5]      39.9       15m
+   15    554   51.1 [47.2,54.6]      32.6       21m
+   20    431   40.4 [35.5,45.1]      25.0       25m
+   30    285   26.7 [21.7,31.6]      17.9       42m
+
+- SMOOTH MONOTONE DECAY, no plateau and no cliff: ~ -2pts of recovery odds
+  per additional % of depth through the mid-range; the event-weighted curve
+  crosses 50/50 at ~15% depth. Windows agree closely (X5: 79/79; X10: 68/64).
+- WEIGHTING MATTERS, as the user suspected: day-weighted sits ~18-20pts below
+  event-weighted at every depth, because each ticker-day carries at most ONE
+  terminal failure and long-running days pile up recovered episodes. Both are
+  real objects: event-weighted = odds at a random junction; day-weighted =
+  odds a given DAY survives a junction of that depth.
+- THE TERMINAL STATE IS SCALE-INVARIANT: 287/291 days end with an unrecovered
+  drawdown; conditional on no recovery, terminal depth med ~37-42% and close
+  ~-31% vs peak REGARDLESS of the conditioning depth. One catastrophic state
+  per day, same shape whatever threshold observes it.
+- RISK/REWARD ROTATES WITH DEPTH: next-leg advance after recovery grows from
+  med +3.8% (after >=2% retrace) to +9.1% (>=10%) to +16.1% (>=20%), while
+  recovery odds fall 85% -> 65% -> 40%, and time-to-recover stretches 1m ->
+  9m -> 25m. Shallow junctions = high odds, small legs; deep junctions =
+  coin-flip or worse odds, large legs. That tradeoff curve - not any single
+  threshold - is the real measured object.
+- Depth distribution: med episode 6.8%, p90 35%, ~4.6 episodes/day reach 5%,
+  ~2.8 reach 10%, ~1.5 reach 20%.
+momentum_recovery_curve.py / .md. Descriptive only; no thresholds optimized.
+
 ## 10. CONDITIONAL PROBABILITIES OF THE OPEN (2026-07-16)
 
 ### 10a. 2×2 Open States: {prev day up/down} × {gap up/down}
