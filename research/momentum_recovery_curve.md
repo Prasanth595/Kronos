@@ -50,3 +50,26 @@
 ## E. Window split of the event-weighted curve
    OOS: X2:85%(694) X5:79%(504) X8:72%(383) X10:68%(324) X15:53%(223) X20:45%(184) 
    IS: X2:85%(1198) X5:79%(837) X8:70%(586) X10:64%(483) X15:50%(331) X20:37%(247) 
+
+## D2. Next-leg advance: full percentiles (added on request)
+
+  X%      n      p5     p10     p25     med     p75      p90      p95       p99       max    mean
+   2   1021    +0.4    +0.7    +1.7    +3.8    +7.3    +13.4    +18.1     +30.7     +61.2    +5.7
+   5    790    +0.5    +1.0    +2.4    +4.8    +9.0    +15.7    +19.6     +32.8     +61.2    +7.0
+   8    516    +0.6    +1.3    +3.3    +7.3   +14.0    +19.9    +24.9     +39.2     +61.2    +9.5
+  10    372    +0.6    +1.5    +4.0    +9.1   +16.8    +24.6    +30.2     +42.3     +61.2   +11.5
+  15    169    +0.6    +2.0    +5.8   +13.2   +25.0    +37.5    +49.7     +61.3     +69.5   +17.4
+  20     69    +1.1    +2.8    +6.9   +16.1   +34.9    +49.5    +60.0     +97.7    +120.9   +23.3
+
+Share of legs advancing >= threshold:
+  X%      n    >=2%    >=5%   >=10%   >=20%   >=50%   >=100%
+   2   1021     71%     39%     15%      3%      0%      0%
+   5    790     79%     49%     21%      5%      0%      0%
+   8    516     83%     62%     37%     10%      0%      0%
+  10    372     85%     69%     47%     17%      0%      0%
+  15    169     90%     77%     59%     36%      5%      0%
+  20     69     91%     83%     67%     41%     10%      1%
+
+Windows: med/p90 OOS vs IS agree within ~1pt at X2/X5/X10; X20 thin (30/39).
+Note: advance is measured next-peak vs recovered-peak, so it is positive by
+construction; p5 ~ +0.5% means 1 in 20 legs barely extends past the old high.
