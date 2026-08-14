@@ -543,6 +543,43 @@ READING, recorded without retuning anything:
   harsh on recently-active names, catalyst pillar unchecked, one entry per
   ticker-day. Logged for audit, unchanged.
 
+## 9i. POST-ENTRY STATE SEQUENCES (2026-08-14) - descriptive, nothing optimized
+
+User hypothesis: treat the day as a recurring pullback/continuation process,
+not one bet with one exit. Measured on all 291 corrected entries, full
+session, pullback = >=5% retrace from running high (8% sensitivity shown).
+
+THE TRANSITION TABLE (the headline):
+  PB#    n   P(new high)  depth med/p75   peak@ med   t.peak   t.recover
+  1    288       78%       11.6%/26.9%      +2.9%       0m        4m
+  2    226       79%       14.0%/30.6%      +8.7%       6m        5m
+  3    179       78%       14.0%/28.4%     +16.2%      20m        5m
+  4+   609       78%       13.1%/24.8%     +47.2%     104m        4m
+
+- P(new high | pullback) is ~78% and FLAT across pullback order. Stable
+  across windows (OOS 77-81%, IS 77-80%) and at T=8% (69-74%, also flat).
+  PB1 depth does not change PB2 odds (79% vs 79%). Time-of-day barely
+  matters until 240+ min (72%). THE PROCESS IS ESSENTIALLY MEMORYLESS:
+  every >=5% pullback, whenever it occurs, resolves to a new high with
+  ~78% probability. A geometric process, not a path-dependent one.
+- EXPANSION LEGS: leg 1 (entry->first peak) med +2.9% in 0 minutes - the
+  corrected entry lands AT the top of the initiating thrust, which is why
+  49% touch -2% before +2%. But legs 2/3/4+ (trough->next peak) are med
+  +18-19% each, p75 +28-33%, forming in MINUTES (recovery med 4-5 min).
+  Mean 4.5 pullback cycles per ticker-day.
+- THE 22% FAILURE STATE IS CATASTROPHIC: pullbacks that never recover end
+  the day med -37% off the peak (p75 -50%). Every cycle is ~78% "next leg
+  +18% median" vs ~22% "terminal collapse".
+- Fixed-level races are coin-flips with negative skew (after +5%: 42%
+  reach +10% before returning to entry), because fixed percentages ignore
+  the state structure; the pullback/recovery frame captures it.
+- Archetype: enter at thrust top -> immediate dip -> PB1 (med -11.6%) ->
+  78% new high (+18% leg) -> repeat every few minutes -> one cycle in five
+  fails and ends -37% off peak.
+Analysis: momentum_transitions.py / momentum_transitions.md. Next step per
+user: design an exit/re-entry policy around these measured junctions and
+backtest it SEPARATELY.
+
 ## 10. CONDITIONAL PROBABILITIES OF THE OPEN (2026-07-16)
 
 ### 10a. 2×2 Open States: {prev day up/down} × {gap up/down}
