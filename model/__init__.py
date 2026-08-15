@@ -1,4 +1,4 @@
-from .kronos import KronosTokenizer, Kronos, KronosPredictor
+from .kronos import KronosTokenizer, Kronos, KronosPredictor, aggregate_sample_paths
 
 model_dict = {
     'kronos_tokenizer': KronosTokenizer,

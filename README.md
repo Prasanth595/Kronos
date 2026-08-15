@@ -213,6 +213,18 @@ Running this script will generate a plot comparing the ground truth data against
 
 Additionally, we provide a script that makes predictions without Volume and Amount data, which can be found in [`examples/prediction_wo_vol_example.py`](examples/prediction_wo_vol_example.py).
 
+### Evaluating forecasts (walk-forward, issue [#387](https://github.com/shiyu-coder/Kronos/issues/387))
+
+Zero-shot Kronos-small is a **generative K-line prior**, not a finished single-contract trading system. The paper reports IC / RankIC (series correlation and cross-sectional ranking). A walk-forward long/short on one futures series can easily show **no directional edge and worse MAE than a last-price random walk** — especially if you plot the high/low of the *averaged* `predict()` path as a confidence cone. That cone is too narrow because `predict()` averages `sample_count` trajectories internally.
+
+Use `KronosPredictor.forecast(...)` to keep sample paths and 10/90% quantiles, and compare against a random-walk baseline on the same origins:
+
+```shell
+python examples/walk_forward_eval.py --data ./data/XSHG_5min_600977.csv --pred-len 12 --windows 8 --sample-count 8
+```
+
+If that script reports no edge on your market, finetune on that instrument/frequency (see below) rather than only raising `T`.
+
 
 ## 🔧 Finetuning on Your Own Data (A-Share Market Example)
 
