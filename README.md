@@ -335,3 +335,148 @@ This project is licensed under the [MIT License](./LICENSE).
 
 
 
+
+---
+
+# Appendix: Momentum Day-Trading Backtest (Cameron First-Pullback)
+
+Independent research appended to this fork. Not part of the upstream Kronos
+model. Full detail in [`research/FINDINGS.md`](research/FINDINGS.md);
+per-trade data in [`research/momentum_master_table.csv`](research/momentum_master_table.csv).
+
+**Strategy under test.** Five-pillar small-cap momentum selection (relative
+volume ≥5× 50-day average, intraday gain ≥10%, price $2–$20, float <20M,
+gap/catalyst), first-pullback entry on the crossing candle, per
+`research/momentum_daytrading_notes.md`.
+
+**Data & conventions.** Alpaca SIP 1-minute bars, `adjustment=raw`, full
+sessions. Two windows: 2024-08→2025-08 and 2025-08→2026-08. Universe = active
+US equities (survivorship-biased; a delisted-universe probe found 2 qualifying
+entries, both winners). Costs: 0.5%/side, plus 2% slip-through on stop fills
+unless noted. Float pillar could not be applied historically.
+
+## 1. Universe funnel and frequency
+
+| Window | Candidate-days | Entries | First-pullback | Later-pullback |
+|---|---|---|---|---|
+| 2024-08→2025-08 | 4,792 | 109 | 21 (0.4/wk) | 88 (1.7/wk) |
+| 2025-08→2026-08 | 5,005 | 182 | 32 (0.6/wk) | 150 (2.9/wk) |
+
+Dynamic intraday qualification (a stock may qualify any time 07:00–10:00 ET,
+not only at the open) expanded the candidate pool ~4× versus an open-gap scan.
+
+## 2. Raw post-entry movement, first-pullback entries (no exit rules)
+
+| Metric | 2024-25 (n=21) | 2025-26 (n=32) |
+|---|---|---|
+| MFE by 10:00, median | +26.0% | +15.5% |
+| MAE by 10:00, median | -28.2% | -16.6% |
+| Price at 10:00, median | -15.5% | +0.1% |
+| Day close vs entry, median | -25.8% | -8.2% |
+| Touched +5% / +10% / +20% / +50% | 76 / 76 / 62 / 10% | 84 / 75 / 53 / 22% |
+
+Large two-sided movement; the median entry closes **below** the entry price.
+
+## 3. Drawdown → recovery curve (threshold-free)
+
+2,201 retracement episodes / 291 ticker-days. Every dip below a running high
+is an event; depth grid is a reporting cut, not an event definition.
+
+| Retrace reached | n | P(new high) event-wtd | 95% CI | day-wtd | median time to recover |
+|---|---|---|---|---|---|
+| ≥2% | 1,892 | 84.9% | [83.0, 86.4] | 66.6% | 1 min |
+| ≥5% | 1,341 | 78.7% | [76.3, 80.7] | 58.0% | 3 min |
+| ≥8% | 969 | 70.8% | [67.9, 73.3] | 49.5% | 7 min |
+| ≥10% | 807 | 65.4% | [62.2, 68.4] | 45.3% | 9 min |
+| ≥15% | 554 | 51.1% | [47.2, 54.6] | 32.6% | 21 min |
+| ≥20% | 431 | 40.4% | [35.5, 45.1] | 25.0% | 25 min |
+| ≥30% | 285 | 26.7% | [21.7, 31.6] | 17.9% | 42 min |
+
+Smooth monotone decay, no plateau or cliff; crosses 50/50 near 15% depth.
+Day-weighted runs 18–20 pts below event-weighted (each ticker-day carries at
+most one terminal failure). CIs from a ticker-day cluster bootstrap.
+Retracement **order** (1st/2nd/3rd) carries no measurable information once
+depth is known.
+
+## 4. Escalation ladder — P(a retracement that reached X% goes on to reach Y%)
+
+| From \ To | ≥5% | ≥10% | ≥15% | ≥20% | ≥30% |
+|---|---|---|---|---|---|
+| reached 2% | 71% | 43% | 29% | 23% | 15% |
+| reached 5% | — | 60% | 41% | 32% | 21% |
+| reached 10% | — | — | 69% | 53% | 35% |
+| reached 15% | — | — | — | 78% | 51% |
+| reached 20% | — | — | — | — | 66% |
+
+Escalation odds *rise* with depth: shallow dips usually stop, deep dips tend
+to keep going.
+
+## 5. Next-leg advance after a recovered ≥X% retracement
+
+Next event's peak vs the recovered peak (recovered episodes only).
+
+| X% | n | p5 | p25 | med | p75 | p90 | p99 | max | mean |
+|---|---|---|---|---|---|---|---|---|---|
+| 2 | 1,021 | +0.4 | +1.7 | +3.8 | +7.3 | +13.4 | +30.7 | +61.2 | +5.7 |
+| 5 | 790 | +0.5 | +2.4 | +4.8 | +9.0 | +15.7 | +32.8 | +61.2 | +7.0 |
+| 8 | 516 | +0.6 | +3.3 | +7.3 | +14.0 | +19.9 | +39.2 | +61.2 | +9.5 |
+| 10 | 372 | +0.6 | +4.0 | +9.1 | +16.8 | +24.6 | +42.3 | +61.2 | +11.5 |
+| 15 | 169 | +0.6 | +5.8 | +13.2 | +25.0 | +37.5 | +61.3 | +69.5 | +17.4 |
+| 20 | 69 | +1.1 | +6.9 | +16.1 | +34.9 | +49.5 | +97.7 | +120.9 | +23.3 |
+
+## 6. Downside from a naive dip-buy (additional fall below the −X% price)
+
+| Buy at | n | med | p75 | p90 | if it recovers (med) | if it fails (med) |
+|---|---|---|---|---|---|---|
+| −2% | 1,892 | 6.4% | 16.3% | 35.7% | **5.1%** | **36.3%** |
+| −5% | 1,341 | 7.6% | 22.1% | 38.8% | 5.3% | 34.3% |
+| −10% | 807 | 12.6% | 29.0% | 43.6% | 6.2% | 30.7% |
+| −20% | 431 | 19.3% | 31.2% | 49.3% | 10.5% | 24.0% |
+
+Recovering and failing episodes separate around 15–20% below the buy price.
+
+## 7. Fixed-level policies — exhaustive grid (all negative)
+
+Mean %/trade, buy at −X% from running high, fixed stop and take-profit,
+2024-26 pooled. Best cell per rung shown; **all 156 tested combinations lost**.
+
+| Buy rung | Best stop/TP | Mean/trade | n | Win rate |
+|---|---|---|---|---|
+| −2% | −3% / +2% | −3.49% | 33,136 | 26% |
+| −5% | −10% / +2% | −2.32% | 9,834 | 69% |
+| −10% | −10% / +2% | **−2.29%** | 4,523 | 69% |
+| −20% | −3% / +3% | −2.88% | 1,516 | — |
+
+With **zero costs and perfect fills**, the TP>stop family still loses
+(−0.10% to −0.90%/trade). Reason: the 85% recovery statistic is measured with
+no stop in the way; any fixed stop is tagged during the escalation that
+precedes most recoveries, collapsing the realized win rate to ~13–30%.
+
+## 8. Exit-mechanism comparison, corrected entries
+
+| Exit | First-pullback (n=53) | All entries (n=291) |
+|---|---|---|
+| Indicator exits + pullback-low stop | −1.05 R | — |
+| Fixed target (dip-conditioned) | — | +0.4 to +1.0% |
+| Laddered scale-out + ratcheting stop | negative | negative |
+| Fixed buy/stop/TP grid (§7) | negative | negative |
+| Junction cycling (arm −10%, exit −10%) | — | −4.5 to −5.1% |
+| **No stop; arm at +2%; trail 0.25×ATR(14,1m); flat 10:00** | **+2.42%** | **~+1.2%** |
+
+Per-day: ~+1.0% per qualified day; 222 of ~504 trading days qualified (44%);
+~+0.46% per calendar trading day. Every fixed initial stop tested (6/8/10/12/
+15/20%) reduced returns monotonically versus no stop.
+
+## 9. Caveats
+
+- **n = 53** first-pullback trades. Approximate 95% CI on +2.42% spans roughly
+  −0.5% to +5.4%. The n=291 population (~+1.2%/trade) is sturdier.
+- Exit parameters (0.25×ATR, +2% arm) were tuned on data overlapping both
+  windows; the structure, not those two constants, was validated out-of-sample.
+- **Fill quality is the binding assumption.** At 5% slip-through most edges
+  here fall by half or vanish. Only live fills can settle it.
+- Survivorship bias; float pillar unapplied historically; no options exist on
+  ~93% of these names; short-selling is impractical (borrow, SSR, buy-in).
+- Earlier versions of this work reported a +13.96%/trade figure on n=41. That
+  was an optimization subset combined with an entry-definition bug and is
+  **superseded**; see `FINDINGS.md` §9g–9h for the correction record.
