@@ -386,7 +386,28 @@ def sample_from_logits(logits, temperature=1.0, top_k=None, top_p=None, sample_l
     return x
 
 
-def auto_regressive_inference(tokenizer, model, x, x_stamp, y_stamp, max_context, pred_len, clip=5, T=1.0, top_k=0, top_p=0.99, sample_count=5, verbose=False):
+def aggregate_sample_paths(samples, quantile_levels=(0.1, 0.5, 0.9)):
+    """Reduce (n_samples, pred_len, n_features) paths into mean/std/quantiles.
+
+    Averaging paths first and then reading high/low of that mean path makes
+    uncertainty cones look far too narrow. Quantiles must be taken across samples.
+    """
+    samples = np.asarray(samples, dtype=np.float64)
+    if samples.ndim != 3:
+        raise ValueError(f"samples must have shape (n_samples, pred_len, n_features), got {samples.shape}")
+    n_samples = samples.shape[0]
+    summary = {
+        "mean": samples.mean(axis=0),
+        "std": samples.std(axis=0, ddof=1) if n_samples > 1 else np.zeros(samples.shape[1:], dtype=np.float64),
+        "n_samples": n_samples,
+    }
+    for q in quantile_levels:
+        key = f"q{int(round(float(q) * 100))}"
+        summary[key] = np.quantile(samples, q, axis=0)
+    return summary
+
+
+def auto_regressive_inference(tokenizer, model, x, x_stamp, y_stamp, max_context, pred_len, clip=5, T=1.0, top_k=0, top_p=0.99, sample_count=5, verbose=False, return_samples=False):
     with torch.no_grad():
         x = torch.clip(x, -clip, clip)
 
@@ -464,9 +485,9 @@ def auto_regressive_inference(tokenizer, model, x, x_stamp, y_stamp, max_context
         z = tokenizer.decode(input_tokens, half=True)
         z = z.reshape(-1, sample_count, z.size(1), z.size(2))
         preds = z.cpu().numpy()
-        preds = np.mean(preds, axis=1)
-
-        return preds
+        if return_samples:
+            return preds
+        return np.mean(preds, axis=1)
 
 
 def calc_time_stamps(x_timestamp):
@@ -502,19 +523,25 @@ class KronosPredictor:
         
         self.device = device
 
-        self.tokenizer = self.tokenizer.to(self.device)
-        self.model = self.model.to(self.device)
+        # Dropout must be off for inference. Leaving the module in train mode
+        # noisily shrinks sampled cones and can make point forecasts worse than
+        # a last-price random walk.
+        self.tokenizer = self.tokenizer.to(self.device).eval()
+        self.model = self.model.to(self.device).eval()
 
-    def generate(self, x, x_stamp, y_stamp, pred_len, T, top_k, top_p, sample_count, verbose):
+    def generate(self, x, x_stamp, y_stamp, pred_len, T, top_k, top_p, sample_count, verbose, return_samples=False):
 
         x_tensor = torch.from_numpy(np.array(x).astype(np.float32)).to(self.device)
         x_stamp_tensor = torch.from_numpy(np.array(x_stamp).astype(np.float32)).to(self.device)
         y_stamp_tensor = torch.from_numpy(np.array(y_stamp).astype(np.float32)).to(self.device)
 
-        preds = auto_regressive_inference(self.tokenizer, self.model, x_tensor, x_stamp_tensor, y_stamp_tensor, self.max_context, pred_len,
-                                          self.clip, T, top_k, top_p, sample_count, verbose)
-        preds = preds[:, -pred_len:, :]
-        return preds
+        preds = auto_regressive_inference(
+            self.tokenizer, self.model, x_tensor, x_stamp_tensor, y_stamp_tensor, self.max_context, pred_len,
+            self.clip, T, top_k, top_p, sample_count, verbose, return_samples=return_samples,
+        )
+        if return_samples:
+            return preds[:, :, -pred_len:, :]
+        return preds[:, -pred_len:, :]
 
     def predict(self, df, x_timestamp, y_timestamp, pred_len, T=1.0, top_k=0, top_p=0.9, sample_count=1, verbose=True):
 
@@ -558,6 +585,68 @@ class KronosPredictor:
         pred_df = pd.DataFrame(preds, columns=self.price_cols + [self.vol_col, self.amt_vol], index=y_timestamp)
         return pred_df
 
+    def forecast(self, df, x_timestamp, y_timestamp, pred_len, T=1.0, top_k=0, top_p=0.9, sample_count=16, quantile_levels=(0.1, 0.5, 0.9), verbose=True):
+        """Probabilistic forecast that keeps sample paths for uncertainty cones.
+
+        `predict()` averages `sample_count` paths internally, so high/low of that
+        single mean path is not a confidence interval. Use this method when you
+        need walk-forward evaluation or calibrated cones.
+
+        Returns:
+            dict with:
+              mean (DataFrame): ensemble-mean path (same as `predict`)
+              quantiles (dict[str, DataFrame]): e.g. q10/q50/q90 across samples
+              samples (ndarray): shape (sample_count, pred_len, n_features)
+              last_close (float): last observed close, for return signals
+              columns (list[str]): feature names
+        """
+        if sample_count < 1:
+            raise ValueError("sample_count must be >= 1")
+
+        if not isinstance(df, pd.DataFrame):
+            raise ValueError("Input must be a pandas DataFrame.")
+        if not all(col in df.columns for col in self.price_cols):
+            raise ValueError(f"Price columns {self.price_cols} not found in DataFrame.")
+
+        df = df.copy()
+        if self.vol_col not in df.columns:
+            df[self.vol_col] = 0.0
+            df[self.amt_vol] = 0.0
+        if self.amt_vol not in df.columns and self.vol_col in df.columns:
+            df[self.amt_vol] = df[self.vol_col] * df[self.price_cols].mean(axis=1)
+        if df[self.price_cols + [self.vol_col, self.amt_vol]].isnull().values.any():
+            raise ValueError("Input DataFrame contains NaN values in price or volume columns.")
+
+        x = df[self.price_cols + [self.vol_col, self.amt_vol]].values.astype(np.float32)
+        x_mean, x_std = np.mean(x, axis=0), np.std(x, axis=0)
+        x_norm = np.clip((x - x_mean) / (x_std + 1e-5), -self.clip, self.clip)
+        x_stamp = calc_time_stamps(x_timestamp).values.astype(np.float32)
+        y_stamp = calc_time_stamps(y_timestamp).values.astype(np.float32)
+
+        samples = self.generate(
+            x_norm[np.newaxis, :],
+            x_stamp[np.newaxis, :],
+            y_stamp[np.newaxis, :],
+            pred_len, T, top_k, top_p, sample_count, verbose,
+            return_samples=True,
+        )[0]
+        samples = samples * (x_std + 1e-5) + x_mean
+
+        summary = aggregate_sample_paths(samples, quantile_levels=quantile_levels)
+        columns = self.price_cols + [self.vol_col, self.amt_vol]
+        mean_df = pd.DataFrame(summary["mean"], columns=columns, index=y_timestamp)
+        quantile_dfs = {}
+        for q in quantile_levels:
+            key = f"q{int(round(float(q) * 100))}"
+            quantile_dfs[key] = pd.DataFrame(summary[key], columns=columns, index=y_timestamp)
+
+        return {
+            "mean": mean_df,
+            "quantiles": quantile_dfs,
+            "samples": samples,
+            "last_close": float(df["close"].iloc[-1]),
+            "columns": columns,
+        }
 
     def predict_batch(self, df_list, x_timestamp_list, y_timestamp_list, pred_len, T=1.0, top_k=0, top_p=0.9, sample_count=1, verbose=True):
         """
