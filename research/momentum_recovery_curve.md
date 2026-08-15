@@ -95,3 +95,20 @@ deepening (terminal med 37%). The knowable-in-real-time object remains the
 survival curve P(recover | depth has REACHED X), section B. The band table's
 legitimate reading: failures are almost never shallow - if a retracement is
 going to kill the day, it does so by cutting deep, not by stalling small.
+
+## D4. Conditional next-junction given previous junction (n=1910 pairs)
+
+T1. P(next depth | current depth):
+ cur|next      <5    5-10   10-20    >=20      n  med next
+       <5     56%     21%     11%     12%    856      4.1%
+     5-10     36%     23%     23%     18%    527      7.7%
+    10-20     25%     27%     22%     25%    353      9.4%
+     >=20     21%     24%     17%     39%    174     12.1%
+
+T2. by current depth: P(next recovers) 90/89/83/76%; next depth med 4.1->12.1%
+T3. by leg advance: P(next recovers) flat 85-91%; next depth med rises 4.6->11.3%
+rank corr: depth~next_depth +0.38 | advance~next_depth +0.28 | depth~advance +0.22
+
+Depth clusters (volatility clustering): deep junctions beget deep junctions,
+and larger legs precede deeper next dips. Recovery odds remain governed by
+the junction's own depth; the clustering shifts WHICH depths arrive next.
