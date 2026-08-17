@@ -79,7 +79,10 @@ def main():
         webbrowser.open('http://localhost:7070')
         
         # Start Flask application
-        app.run(debug=True, host='0.0.0.0', port=7070)
+        # [SECURITY 2026-07-03] loopback + no debugger/reloader by default;
+        # opt into LAN exposure with KRONOS_WEBUI_BIND_ALL=1.
+        host = '0.0.0.0' if os.getenv('KRONOS_WEBUI_BIND_ALL') == '1' else '127.0.0.1'
+        app.run(debug=False, host=host, port=7070, use_reloader=False)
         
     except Exception as e:
         print(f"❌ Startup failed: {e}")

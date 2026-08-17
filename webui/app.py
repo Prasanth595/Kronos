@@ -22,7 +22,9 @@ except ImportError:
     print("Warning: Kronos model cannot be imported, will use simulated data for demonstration")
 
 app = Flask(__name__)
-CORS(app)
+# [SECURITY 2026-07-03] restrict CORS to the local UI (was wildcard CORS(app)
+# on unauthenticated, state-changing endpoints).
+CORS(app, origins=["http://127.0.0.1:7070", "http://localhost:7070"])
 
 # Global variables to store models
 tokenizer = None
@@ -78,10 +80,19 @@ def load_data_files():
 def load_data_file(file_path):
     """Load data file"""
     try:
+        # [SECURITY 2026-07-03] confine reads to the repo data/ dir. Blocks
+        # arbitrary local file read AND the pd.read_csv(URL) SSRF (a URL does
+        # not resolve under data/).
+        data_root = os.path.realpath(
+            os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'data')
+        )
+        resolved = os.path.realpath(file_path)
+        if resolved != data_root and not resolved.startswith(data_root + os.sep):
+            return None, "Invalid data path"
         if file_path.endswith('.csv'):
-            df = pd.read_csv(file_path)
+            df = pd.read_csv(resolved)
         elif file_path.endswith('.feather'):
-            df = pd.read_feather(file_path)
+            df = pd.read_feather(resolved)
         else:
             return None, "Unsupported file format"
         
@@ -120,7 +131,9 @@ def load_data_file(file_path):
         return df, None
         
     except Exception as e:
-        return None, f"Failed to load file: {str(e)}"
+        # [SECURITY 2026-07-03] generic message; log detail server-side.
+        print(f"[load_data_file] error: {e}", file=sys.stderr)
+        return None, "Failed to load file"
 
 def save_prediction_results(file_path, prediction_type, prediction_results, actual_data, input_data, prediction_params):
     """Save prediction results to file"""
@@ -399,7 +412,9 @@ def load_data():
         })
         
     except Exception as e:
-        return jsonify({'error': f'Failed to load data: {str(e)}'}), 500
+        # [SECURITY 2026-07-03] don't reflect internals to the client.
+        print(f"[load-data] error: {e}", file=sys.stderr)
+        return jsonify({'error': 'Failed to load data'}), 500
 
 @app.route('/api/predict', methods=['POST'])
 def predict():
@@ -414,7 +429,11 @@ def predict():
         temperature = float(data.get('temperature', 1.0))
         top_p = float(data.get('top_p', 0.9))
         sample_count = int(data.get('sample_count', 1))
-        
+        # [SECURITY 2026-07-03] clamp to sane bounds (resource-exhaustion guard).
+        lookback = max(1, min(lookback, 2048))
+        pred_len = max(1, min(pred_len, 512))
+        sample_count = max(1, min(sample_count, 64))
+
         if not file_path:
             return jsonify({'error': 'File path cannot be empty'}), 400
         
@@ -487,7 +506,9 @@ def predict():
                 )
                 
             except Exception as e:
-                return jsonify({'error': f'Kronos model prediction failed: {str(e)}'}), 500
+                # [SECURITY 2026-07-03] generic client message; detail server-side.
+                print(f"[predict] model error: {e}", file=sys.stderr)
+                return jsonify({'error': 'Model prediction failed'}), 500
         else:
             return jsonify({'error': 'Kronos model not loaded, please load model first'}), 400
         
@@ -621,7 +642,9 @@ def predict():
         })
         
     except Exception as e:
-        return jsonify({'error': f'Prediction failed: {str(e)}'}), 500
+        # [SECURITY 2026-07-03] generic client message; detail server-side.
+        print(f"[predict] error: {e}", file=sys.stderr)
+        return jsonify({'error': 'Prediction failed'}), 500
 
 @app.route('/api/load-model', methods=['POST'])
 def load_model():
@@ -660,7 +683,9 @@ def load_model():
         })
         
     except Exception as e:
-        return jsonify({'error': f'Model loading failed: {str(e)}'}), 500
+        # [SECURITY 2026-07-03] generic client message; detail server-side.
+        print(f"[load-model] error: {e}", file=sys.stderr)
+        return jsonify({'error': 'Model loading failed'}), 500
 
 @app.route('/api/available-models')
 def get_available_models():
@@ -705,4 +730,7 @@ if __name__ == '__main__':
     else:
         print("Tip: Will use simulated data for demonstration")
     
-    app.run(debug=True, host='0.0.0.0', port=7070)
+    # [SECURITY 2026-07-03] loopback + no debugger/reloader by default. Opt into
+    # LAN exposure explicitly with KRONOS_WEBUI_BIND_ALL=1. Prefer serve_webui.py.
+    host = '0.0.0.0' if os.getenv('KRONOS_WEBUI_BIND_ALL') == '1' else '127.0.0.1'
+    app.run(debug=False, host=host, port=7070, use_reloader=False)
