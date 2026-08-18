@@ -60,6 +60,52 @@
    "exit_reason": "atr_trail",
    "ret_pct": 8.39,
    "v5_qualified": false
+  },
+  {
+   "symbol": "XOS",
+   "day": "2026-08-18",
+   "entry_time_et": "07:15",
+   "entry_px_raw": 5.18,
+   "pullback_low": 5.05,
+   "risk_pct": 2.51,
+   "n_dq_before": 1,
+   "float": null,
+   "gainer_rank": 6,
+   "exit_time_et": "07:21",
+   "exit_reason": "atr_trail",
+   "ret_pct": 0.22,
+   "v5_qualified": false
+  },
+  {
+   "symbol": "SLE",
+   "day": "2026-08-18",
+   "entry_time_et": "09:05",
+   "entry_px_raw": 5.39,
+   "pullback_low": 5.02,
+   "risk_pct": 6.86,
+   "n_dq_before": 0,
+   "float": null,
+   "gainer_rank": 9,
+   "exit_time_et": "09:11",
+   "exit_reason": "atr_trail",
+   "ret_pct": 5.15,
+   "v5_qualified": false
+  },
+  {
+   "symbol": "IPST",
+   "day": "2026-08-17",
+   "entry_time_et": "07:22",
+   "entry_px_raw": 6.51,
+   "pullback_low": 6.27,
+   "risk_pct": 3.69,
+   "n_dq_before": 1,
+   "float": null,
+   "gainer_rank": null,
+   "reconstructed": true,
+   "exit_time_et": "07:28",
+   "exit_reason": "atr_trail",
+   "ret_pct": -0.13,
+   "v5_qualified": false
   }
  ],
  "scans": [
@@ -72,6 +118,17 @@
    "day": "2026-08-14",
    "taken": 0,
    "skipped": 1
+  },
+  {
+   "day": "2026-08-18",
+   "taken": 0,
+   "skipped": 2
+  },
+  {
+   "day": "2026-08-17",
+   "taken": 0,
+   "skipped": 1,
+   "reconstructed": true
   }
  ]
 }

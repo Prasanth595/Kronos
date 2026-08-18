@@ -443,6 +443,55 @@
     "float_unknown": true,
     "catalyst_waived": false
    }
+  },
+  {
+   "symbol": "XOS",
+   "date": "2026-08-18",
+   "entry_time_et": "07:15",
+   "entry_px_raw": 5.18,
+   "entry_px": 5.2059,
+   "stop": 5.05,
+   "squeeze_high": 5.26,
+   "swing_low": 4.5,
+   "entry_bar_vol": 1370567,
+   "pillars": {
+    "symbol": "XOS",
+    "day": "2026-08-18",
+    "pct_gain": 112.4,
+    "price": 4.44,
+    "gainer_rank": 6,
+    "gap_pct": 116.7,
+    "relvol": 97.2,
+    "volume": 107893680,
+    "float": null,
+    "float_unknown": true,
+    "catalyst_waived": false
+   },
+   "exit_time_et": "07:16",
+   "exit_reason": "stop",
+   "exit_px_raw": 4.9995,
+   "exit_px": 4.9745,
+   "ret_pct": -4.44,
+   "r_multiple": -1.12
+  },
+  {
+   "symbol": "SLE",
+   "date": "2026-08-18",
+   "no_trade": true,
+   "dq_reason": "retrace>50%",
+   "pillars": {
+    "symbol": "SLE",
+    "day": "2026-08-18",
+    "pct_gain": 82.1,
+    "price": 5.5,
+    "gainer_rank": 9,
+    "gap_pct": 106.0,
+    "relvol": 106.8,
+    "volume": 49319644,
+    "float": null,
+    "float_unknown": true,
+    "catalyst_waived": false
+   }
   }
  ],
  "scans": [
@@ -465,6 +514,11 @@
    "day": "2026-08-14",
    "n_gainers": 25,
    "n_candidates": 5
+  },
+  {
+   "day": "2026-08-18",
+   "n_gainers": 25,
+   "n_candidates": 2
   }
  ]
 }
