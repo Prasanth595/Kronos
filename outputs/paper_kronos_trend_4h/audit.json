@@ -1,0 +1,17 @@
+{
+  "integrity_ok": true,
+  "errors": [],
+  "bars": 23,
+  "elapsed_days": 3.6666666666666665,
+  "entries_from_flat": 1,
+  "completed_cycles": 0,
+  "return_pct": 1.1584946918912653,
+  "max_drawdown_pct": -1.54578771107808,
+  "control_return_pct": 1.1178315884781131,
+  "kronos_incremental_pct_points": 0.04066310341315216,
+  "capital_review_ready": false,
+  "remaining": {
+    "days_to_90": 86.33333333333333,
+    "cycles_to_2": 2
+  }
+}

@@ -1,0 +1,47 @@
+{
+  "warning": "El tramo final ya fue observado por un estudio direccional anterior; sirve como diagnóstico, no como test virgen.",
+  "method": "16 reglas predefinidas, cuatro folds temporales de selección y último 25% diagnóstico",
+  "exposure": 0.5,
+  "one_side_cost": 0.0012,
+  "chosen_rule": {
+    "fast": 50,
+    "slow": 200,
+    "mode": "loose_direction"
+  },
+  "selection_row": {
+    "rule_id": 12,
+    "fast": 50,
+    "slow": 200,
+    "kronos_mode": "loose_direction",
+    "positive_folds": 3,
+    "median_fold_return_pct": 14.859126565184965,
+    "worst_fold_return_pct": -13.735254452154555,
+    "worst_fold_drawdown_pct": -15.074092552858353,
+    "total_entries": 18
+  },
+  "selection_75pct": {
+    "return_pct": 76.15331868092177,
+    "max_drawdown_pct": -15.372011531688766,
+    "entries": 15,
+    "exposure_pct": 32.39707969985804
+  },
+  "final_25pct": {
+    "return_pct": -6.1428267282470745,
+    "max_drawdown_pct": -7.670738018245327,
+    "entries": 5,
+    "exposure_pct": 15.51094890510949
+  },
+  "final_baseline_without_kronos": {
+    "return_pct": -0.3858007132456098,
+    "max_drawdown_pct": -7.670738018245327,
+    "entries": 6,
+    "exposure_pct": 15.845498783454987
+  },
+  "full_period": {
+    "return_pct": 65.33252553829587,
+    "max_drawdown_pct": -15.372011531688766,
+    "entries": 20,
+    "exposure_pct": 28.174904942965778
+  },
+  "historical_gate_passed": false
+}

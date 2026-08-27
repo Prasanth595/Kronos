@@ -1,0 +1,14 @@
+{
+  "last_real_timestamp": "2026-08-21 15:40:00+00:00",
+  "entry_reference": 77492.53125,
+  "next_prediction_timestamp": "2026-08-21 15:50:00+00:00",
+  "next_predicted_close": 76671.1875,
+  "next_predicted_return_pct": -1.059900530736635,
+  "signal": "SHORT",
+  "threshold_pct": 0.5,
+  "leverage": 10.0,
+  "initial_margin_fraction_pct": 5.0,
+  "stop_loss": 84466.8590625,
+  "take_profit": 69743.278125,
+  "theoretical_liquidation": 85241.784375
+}

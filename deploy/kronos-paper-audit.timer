@@ -1,0 +1,10 @@
+[Unit]
+Description=Daily Kronos paper trading integrity audit
+
+[Timer]
+OnCalendar=daily
+Persistent=true
+Unit=kronos-paper-audit.service
+
+[Install]
+WantedBy=timers.target

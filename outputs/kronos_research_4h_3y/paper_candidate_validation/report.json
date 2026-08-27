@@ -1,0 +1,147 @@
+{
+  "rule": {
+    "market": "BTCUSDT",
+    "timeframe": "4h",
+    "components": [
+      "EMA20/100",
+      "EMA20/200",
+      "EMA50/100",
+      "EMA50/200"
+    ],
+    "direction": "long-only",
+    "max_exposure": 0.5,
+    "component_exposure": 0.125,
+    "kronos_filter": "permitir entrada si std ensemble <= percentil 90 de las 1080 predicciones anteriores",
+    "exit": "cruce bajista del componente",
+    "fee_plus_slippage_per_side": 0.0012,
+    "leverage": 1.0,
+    "martingale": false
+  },
+  "caveat": "La regla fue concebida tras observar este dataset; sólo el paper trading posterior es completamente no visto.",
+  "full_period": {
+    "return_pct": 70.87151270041248,
+    "max_drawdown_pct": -15.381086492299856,
+    "annualized_sharpe": 1.248341532570976,
+    "average_exposure_pct": 26.53422053231939
+  },
+  "full_period_baseline_without_kronos": {
+    "return_pct": 65.88256690490644,
+    "max_drawdown_pct": -15.381086492299723,
+    "annualized_sharpe": 1.1716509567421647,
+    "average_exposure_pct": 27.804182509505704
+  },
+  "full_period_kronos_incremental_pct_points": 4.988945795506041,
+  "last_25pct_diagnostic": {
+    "return_pct": 3.434691792191269,
+    "max_drawdown_pct": -7.987296809314959,
+    "annualized_sharpe": 0.5079195791504166,
+    "average_exposure_pct": 18.126520681265205
+  },
+  "last_25pct_baseline_without_kronos": {
+    "return_pct": 3.6896209392407897,
+    "max_drawdown_pct": -7.732134806843282,
+    "annualized_sharpe": 0.5408344343989516,
+    "average_exposure_pct": 18.164537712895378
+  },
+  "last_25pct_kronos_incremental_pct_points": -0.25492914704952074,
+  "positive_six_month_folds": 5,
+  "folds": [
+    {
+      "start": "2023-08-21 16:00:00+00:00",
+      "end": "2024-02-20 04:00:00+00:00",
+      "candidate": {
+        "return_pct": 34.30065384243903,
+        "max_drawdown_pct": -5.982583038448707,
+        "annualized_sharpe": 3.614730116224945,
+        "average_exposure_pct": 32.76255707762557
+      },
+      "baseline_without_kronos": {
+        "return_pct": 30.05892135017636,
+        "max_drawdown_pct": -5.982583038448663,
+        "annualized_sharpe": 3.0666123654576696,
+        "average_exposure_pct": 40.3310502283105
+      }
+    },
+    {
+      "start": "2024-02-20 04:00:00+00:00",
+      "end": "2024-08-20 20:00:00+00:00",
+      "candidate": {
+        "return_pct": 3.6188276574175227,
+        "max_drawdown_pct": -11.414597896087086,
+        "annualized_sharpe": 0.4671380462774706,
+        "average_exposure_pct": 26.97308394160584
+      },
+      "baseline_without_kronos": {
+        "return_pct": 3.618827657417656,
+        "max_drawdown_pct": -11.414597896086976,
+        "annualized_sharpe": 0.46713804627747546,
+        "average_exposure_pct": 26.97308394160584
+      }
+    },
+    {
+      "start": "2024-08-20 20:00:00+00:00",
+      "end": "2025-02-19 12:00:00+00:00",
+      "candidate": {
+        "return_pct": 13.563649377569153,
+        "max_drawdown_pct": -10.321189411453425,
+        "annualized_sharpe": 1.3513616577589287,
+        "average_exposure_pct": 34.42062043795621
+      },
+      "baseline_without_kronos": {
+        "return_pct": 13.563649377569487,
+        "max_drawdown_pct": -10.321189411453147,
+        "annualized_sharpe": 1.3513616577589251,
+        "average_exposure_pct": 34.42062043795621
+      }
+    },
+    {
+      "start": "2025-02-19 12:00:00+00:00",
+      "end": "2025-08-21 04:00:00+00:00",
+      "candidate": {
+        "return_pct": 9.297060305865635,
+        "max_drawdown_pct": -6.185996522183624,
+        "annualized_sharpe": 1.493973134350604,
+        "average_exposure_pct": 30.999087591240876
+      },
+      "baseline_without_kronos": {
+        "return_pct": 9.2970603058655,
+        "max_drawdown_pct": -6.185996522183612,
+        "annualized_sharpe": 1.493973134350571,
+        "average_exposure_pct": 30.999087591240876
+      }
+    },
+    {
+      "start": "2025-08-21 04:00:00+00:00",
+      "end": "2026-02-19 20:00:00+00:00",
+      "candidate": {
+        "return_pct": -6.359772592219281,
+        "max_drawdown_pct": -8.98855068149439,
+        "annualized_sharpe": -1.6892039575776423,
+        "average_exposure_pct": 12.157846715328468
+      },
+      "baseline_without_kronos": {
+        "return_pct": -6.389459351241822,
+        "max_drawdown_pct": -9.01740403906296,
+        "annualized_sharpe": -1.6972952120282854,
+        "average_exposure_pct": 12.169251824817518
+      }
+    },
+    {
+      "start": "2026-02-19 20:00:00+00:00",
+      "end": "2026-08-21 12:00:00+00:00",
+      "candidate": {
+        "return_pct": 5.6434515088463755,
+        "max_drawdown_pct": -5.847976958898604,
+        "annualized_sharpe": 1.0557536587232357,
+        "average_exposure_pct": 21.897810218978105
+      },
+      "baseline_without_kronos": {
+        "return_pct": 5.937409785083925,
+        "max_drawdown_pct": -5.847091210019317,
+        "annualized_sharpe": 1.105042530050671,
+        "average_exposure_pct": 21.943430656934307
+      }
+    }
+  ],
+  "paper_gate": true
+}

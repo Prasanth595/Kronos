@@ -1,0 +1,7 @@
+[Unit]
+Description=Audit Kronos paper trading journal
+
+[Service]
+Type=oneshot
+WorkingDirectory=/home/ocultwolf/newBot/kronos
+ExecStart=/home/ocultwolf/newBot/kronos/kronos_env/bin/python Kronos/examples/audit_paper_journal.py
