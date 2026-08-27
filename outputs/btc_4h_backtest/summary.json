@@ -1,0 +1,36 @@
+{
+  "config": {
+    "ticker": "BTC-USD",
+    "months": 6,
+    "initial_bank": 10000.0,
+    "threshold": 0.005,
+    "leverage": 10.0,
+    "base_margin_fraction": 0.05,
+    "fee_rate": 0.001,
+    "slippage_rate": 0.0002,
+    "stop_liquidation_fraction": 0.9,
+    "take_profit_roi": 1.0,
+    "lookback": 400,
+    "batch_size": 16,
+    "model_name": "NeoQuasar/Kronos-base",
+    "tokenizer_name": "NeoQuasar/Kronos-Tokenizer-base",
+    "seed": 42
+  },
+  "metrics": {
+    "initial_bank": 10000.0,
+    "final_equity": 10416.119862394895,
+    "total_return_pct": 4.161198623948947,
+    "annualized_return_pct": 8.568892285154185,
+    "max_drawdown_pct": -39.59723076584466,
+    "buy_hold_return_pct": 13.000026409144127,
+    "trades": 12,
+    "win_rate_pct": 41.66666666666667,
+    "profit_factor": 1.0929860343470008,
+    "longs": 6,
+    "shorts": 6,
+    "liquidations": 0,
+    "fees_paid": 200.66895118641867,
+    "test_start": "2026-02-21 12:00:00+00:00",
+    "test_end": "2026-08-21 12:00:00+00:00"
+  }
+}

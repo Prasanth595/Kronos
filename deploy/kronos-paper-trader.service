@@ -1,0 +1,14 @@
+[Unit]
+Description=Kronos BTCUSDT 4h paper trader
+After=network-online.target kronos-api.service
+Wants=network-online.target kronos-api.service
+
+[Service]
+Type=simple
+WorkingDirectory=/home/ocultwolf/newBot/kronos
+ExecStart=/home/ocultwolf/newBot/kronos/kronos_env/bin/python Kronos/examples/paper_trade_kronos_trend_4h.py --loop --poll-seconds 300
+Restart=always
+RestartSec=30
+
+[Install]
+WantedBy=default.target

@@ -1,0 +1,14 @@
+[Unit]
+Description=Kronos local GPU inference API
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=/home/ocultwolf/newBot/kronos/Kronos
+ExecStart=/usr/bin/env -u HSA_OVERRIDE_GFX_VERSION /home/ocultwolf/newBot/kronos/kronos_env/bin/python examples/api_agent.py
+Restart=on-failure
+RestartSec=10
+
+[Install]
+WantedBy=default.target

@@ -1,0 +1,40 @@
+{
+  "rule": {
+    "timeframe": "4h",
+    "direction": "LONG only",
+    "threshold": 0.016,
+    "holding_period": "1 candle (4h)",
+    "exposure": "1x equity",
+    "fibonacci": false,
+    "fee_rate_per_side": 0.001,
+    "slippage_per_side": 0.0002
+  },
+  "train": {
+    "initial_bank": 10000.0,
+    "final_equity": 10188.93092082862,
+    "return_pct": 1.889309208286205,
+    "max_drawdown_pct": -6.520999134879146,
+    "trades": 31,
+    "win_rate_pct": 51.61290322580645,
+    "profit_factor": 1.1282428789700623
+  },
+  "unseen_test": {
+    "initial_bank": 10000.0,
+    "final_equity": 10573.157148036298,
+    "return_pct": 5.731571480362985,
+    "max_drawdown_pct": -1.2542643922830665,
+    "trades": 14,
+    "win_rate_pct": 57.14285714285714,
+    "profit_factor": 2.2783447016929967
+  },
+  "full_period": {
+    "initial_bank": 10000.0,
+    "final_equity": 10772.916779640718,
+    "return_pct": 7.729167796407177,
+    "max_drawdown_pct": -6.520999134879146,
+    "trades": 45,
+    "win_rate_pct": 53.333333333333336,
+    "profit_factor": 1.4004631659865356
+  },
+  "split_timestamp": "2026-06-22 08:00:00+00:00"
+}

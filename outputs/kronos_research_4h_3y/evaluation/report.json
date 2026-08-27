@@ -1,0 +1,63 @@
+{
+  "method": "40 candidates predefined; 3 chronological validation folds; final 20% locked",
+  "costs": {
+    "fee_per_side": 0.001,
+    "slippage_per_side": 0.0002,
+    "approx_roundtrip": 0.0024000000000000002
+  },
+  "chosen_rule": {
+    "threshold": 0.015,
+    "votes": 3,
+    "std_cap": null,
+    "trend50": false
+  },
+  "validation_summary": {
+    "rule_id": 20,
+    "threshold": 0.015,
+    "votes": 3,
+    "std_cap": NaN,
+    "trend50": false,
+    "min_fold_trades": 25,
+    "total_validation_trades": 117,
+    "median_fold_return_pct": 4.223675512599301,
+    "worst_fold_return_pct": -4.0072971501787125,
+    "mean_fold_return_pct": 6.476086212569839,
+    "worst_fold_drawdown_pct": -9.514971231372215,
+    "positive_folds": 2
+  },
+  "research_80pct": {
+    "start": "2023-08-21 16:00:00+00:00",
+    "end": "2026-01-14 08:00:00+00:00",
+    "final_equity": 12554.742860961916,
+    "return_pct": 25.54742860961916,
+    "max_drawdown_pct": -9.514971231372282,
+    "trades": 127,
+    "win_rate_pct": 50.39370078740157,
+    "profit_factor": 1.396825584806717,
+    "annualized_sharpe": 0.8088170348735243
+  },
+  "locked_test_20pct": {
+    "start": "2026-01-14 08:00:00+00:00",
+    "end": "2026-08-21 12:00:00+00:00",
+    "final_equity": 7552.020314098436,
+    "return_pct": -24.479796859015647,
+    "max_drawdown_pct": -26.787693193423788,
+    "trades": 101,
+    "win_rate_pct": 44.554455445544555,
+    "profit_factor": 0.5956306437154456,
+    "annualized_sharpe": -2.4513254037351895,
+    "buy_hold_return_pct": -18.536191336511287
+  },
+  "full_period": {
+    "start": "2023-08-21 16:00:00+00:00",
+    "end": "2026-08-21 12:00:00+00:00",
+    "final_equity": 9481.367312426675,
+    "return_pct": -5.186326875733249,
+    "max_drawdown_pct": -31.908413010183633,
+    "trades": 228,
+    "win_rate_pct": 47.80701754385965,
+    "profit_factor": 0.9814586119195207,
+    "annualized_sharpe": -0.05683072097297937
+  },
+  "paper_trade_gate_passed": false
+}

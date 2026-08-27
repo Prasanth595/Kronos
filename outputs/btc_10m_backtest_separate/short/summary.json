@@ -1,0 +1,39 @@
+{
+  "config": {
+    "ticker": "BTCUSDT",
+    "timeframe": "10m · estrategia SHORT",
+    "months": 6,
+    "initial_bank": 5000.0,
+    "threshold": 0.005,
+    "leverage": 10.0,
+    "base_margin_fraction": 0.05,
+    "fee_rate": 0.001,
+    "slippage_rate": 0.0002,
+    "stop_liquidation_fraction": 0.9,
+    "take_profit_roi": 1.0,
+    "lookback": 400,
+    "batch_size": 16,
+    "model_name": "NeoQuasar/Kronos-base",
+    "tokenizer_name": "NeoQuasar/Kronos-Tokenizer-base",
+    "seed": 42
+  },
+  "metrics": {
+    "initial_bank": 5000.0,
+    "final_equity": 384.589099999996,
+    "total_return_pct": -92.30821800000008,
+    "annualized_return_pct": -99.43321558102218,
+    "max_drawdown_pct": -95.40562879000854,
+    "buy_hold_return_pct": 13.12685272899512,
+    "trades": 20,
+    "win_rate_pct": 0.0,
+    "profit_factor": 0.0,
+    "longs": 0,
+    "shorts": 20,
+    "liquidations": 0,
+    "fees_paid": 104.51089999999999,
+    "test_start": "2026-02-21 15:50:00+00:00",
+    "test_end": "2026-08-21 15:30:00+00:00",
+    "signals_skipped_no_margin": 254,
+    "strategy_direction": "SHORT"
+  }
+}
