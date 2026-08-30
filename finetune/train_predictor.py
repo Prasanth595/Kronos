@@ -86,97 +86,123 @@ def train_model(model, tokenizer, device, config, save_dir, logger, rank, world_
 
     for epoch_idx in range(config['epochs']):
         epoch_start_time = time.time()
-        model.train()
-        train_loader.sampler.set_epoch(epoch_idx)
-
-        train_dataset.set_epoch_seed(epoch_idx * 10000 + rank)
-        valid_dataset.set_epoch_seed(0)
-
-        for i, (batch_x, batch_x_stamp) in enumerate(train_loader):
-            batch_x = batch_x.squeeze(0).to(device, non_blocking=True)
-            batch_x_stamp = batch_x_stamp.squeeze(0).to(device, non_blocking=True)
-
-            # Tokenize input data on-the-fly
-            with torch.no_grad():
-                token_seq_0, token_seq_1 = tokenizer.encode(batch_x, half=True)
-
-            # Prepare inputs and targets for the language model
-            token_in = [token_seq_0[:, :-1], token_seq_1[:, :-1]]
-            token_out = [token_seq_0[:, 1:], token_seq_1[:, 1:]]
-
-            # Forward pass and loss calculation
-            logits = model(token_in[0], token_in[1], batch_x_stamp[:, :-1, :])
-            loss, s1_loss, s2_loss = model.module.head.compute_loss(logits[0], logits[1], token_out[0], token_out[1])
-
-            # Backward pass and optimization
-            optimizer.zero_grad()
-            loss.backward()
-            torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=3.0)
-            optimizer.step()
-            scheduler.step()
-
-            # Logging (Master Process Only)
-            if rank == 0 and (batch_idx_global + 1) % config['log_interval'] == 0:
-                lr = optimizer.param_groups[0]['lr']
-                print(
-                    f"[Rank {rank}, Epoch {epoch_idx + 1}/{config['epochs']}, Step {i + 1}/{len(train_loader)}] "
-                    f"LR {lr:.6f}, Loss: {loss.item():.4f}"
-                )
-            if rank == 0 and logger:
-                lr = optimizer.param_groups[0]['lr']
-                logger.log_metric('train_predictor_loss_batch', loss.item(), step=batch_idx_global)
-                logger.log_metric('train_S1_loss_each_batch', s1_loss.item(), step=batch_idx_global)
-                logger.log_metric('train_S2_loss_each_batch', s2_loss.item(), step=batch_idx_global)
-                logger.log_metric('predictor_learning_rate', lr, step=batch_idx_global)
-
-            batch_idx_global += 1
-
-        # --- Validation Loop ---
-        model.eval()
-        tot_val_loss_sum_rank = 0.0
-        val_batches_processed_rank = 0
-        with torch.no_grad():
-            for batch_x, batch_x_stamp in val_loader:
-                batch_x = batch_x.squeeze(0).to(device, non_blocking=True)
-                batch_x_stamp = batch_x_stamp.squeeze(0).to(device, non_blocking=True)
-
-                token_seq_0, token_seq_1 = tokenizer.encode(batch_x, half=True)
-                token_in = [token_seq_0[:, :-1], token_seq_1[:, :-1]]
-                token_out = [token_seq_0[:, 1:], token_seq_1[:, 1:]]
-
-                logits = model(token_in[0], token_in[1], batch_x_stamp[:, :-1, :])
-                val_loss, _, _ = model.module.head.compute_loss(logits[0], logits[1], token_out[0], token_out[1])
-
-                tot_val_loss_sum_rank += val_loss.item()
-                val_batches_processed_rank += 1
-
-        # Reduce validation metrics
-        val_loss_sum_tensor = torch.tensor(tot_val_loss_sum_rank, device=device)
-        val_batches_tensor = torch.tensor(val_batches_processed_rank, device=device)
-        dist.all_reduce(val_loss_sum_tensor, op=dist.ReduceOp.SUM)
-        dist.all_reduce(val_batches_tensor, op=dist.ReduceOp.SUM)
-
-        avg_val_loss = val_loss_sum_tensor.item() / val_batches_tensor.item() if val_batches_tensor.item() > 0 else 0
+        batch_idx_global = _train_one_epoch(
+            model, tokenizer, device, config, train_loader, train_dataset, valid_dataset,
+            optimizer, scheduler, logger, rank, epoch_idx, batch_idx_global
+        )
+        avg_val_loss = _validate(model, tokenizer, device, val_loader)
 
         # --- End of Epoch Summary & Checkpointing (Master Process Only) ---
         if rank == 0:
-            print(f"\n--- Epoch {epoch_idx + 1}/{config['epochs']} Summary ---")
-            print(f"Validation Loss: {avg_val_loss:.4f}")
-            print(f"Time This Epoch: {format_time(time.time() - epoch_start_time)}")
-            print(f"Total Time Elapsed: {format_time(time.time() - start_time)}\n")
-            if logger:
-                logger.log_metric('val_predictor_loss_epoch', avg_val_loss, epoch=epoch_idx)
-
-            if avg_val_loss < best_val_loss:
-                best_val_loss = avg_val_loss
-                save_path = f"{save_dir}/checkpoints/best_model"
-                model.module.save_pretrained(save_path)
-                print(f"Best model saved to {save_path} (Val Loss: {best_val_loss:.4f})")
+            best_val_loss = _log_epoch_summary(
+                model, config, save_dir, logger, epoch_idx,
+                epoch_start_time, start_time, avg_val_loss, best_val_loss
+            )
 
         dist.barrier()
 
     dt_result['best_val_loss'] = best_val_loss
     return dt_result
+
+
+def _train_one_epoch(model, tokenizer, device, config, train_loader, train_dataset,
+                     valid_dataset, optimizer, scheduler, logger, rank, epoch_idx, batch_idx_global):
+    """Run a single training epoch and return the updated global batch index."""
+    model.train()
+    train_loader.sampler.set_epoch(epoch_idx)
+
+    train_dataset.set_epoch_seed(epoch_idx * 10000 + rank)
+    valid_dataset.set_epoch_seed(0)
+
+    for i, (batch_x, batch_x_stamp) in enumerate(train_loader):
+        batch_x = batch_x.squeeze(0).to(device, non_blocking=True)
+        batch_x_stamp = batch_x_stamp.squeeze(0).to(device, non_blocking=True)
+
+        # Tokenize input data on-the-fly
+        with torch.no_grad():
+            token_seq_0, token_seq_1 = tokenizer.encode(batch_x, half=True)
+
+        # Prepare inputs and targets for the language model
+        token_in = [token_seq_0[:, :-1], token_seq_1[:, :-1]]
+        token_out = [token_seq_0[:, 1:], token_seq_1[:, 1:]]
+
+        # Forward pass and loss calculation
+        logits = model(token_in[0], token_in[1], batch_x_stamp[:, :-1, :])
+        loss, s1_loss, s2_loss = model.module.head.compute_loss(logits[0], logits[1], token_out[0], token_out[1])
+
+        # Backward pass and optimization
+        optimizer.zero_grad()
+        loss.backward()
+        torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=3.0)
+        optimizer.step()
+        scheduler.step()
+
+        # Logging (Master Process Only)
+        if rank == 0 and (batch_idx_global + 1) % config['log_interval'] == 0:
+            lr = optimizer.param_groups[0]['lr']
+            print(
+                f"[Rank {rank}, Epoch {epoch_idx + 1}/{config['epochs']}, Step {i + 1}/{len(train_loader)}] "
+                f"LR {lr:.6f}, Loss: {loss.item():.4f}"
+            )
+        if rank == 0 and logger:
+            lr = optimizer.param_groups[0]['lr']
+            logger.log_metric('train_predictor_loss_batch', loss.item(), step=batch_idx_global)
+            logger.log_metric('train_S1_loss_each_batch', s1_loss.item(), step=batch_idx_global)
+            logger.log_metric('train_S2_loss_each_batch', s2_loss.item(), step=batch_idx_global)
+            logger.log_metric('predictor_learning_rate', lr, step=batch_idx_global)
+
+        batch_idx_global += 1
+
+    return batch_idx_global
+
+
+def _validate(model, tokenizer, device, val_loader):
+    """Run the validation loop and return the validation loss averaged over all ranks."""
+    # --- Validation Loop ---
+    model.eval()
+    tot_val_loss_sum_rank = 0.0
+    val_batches_processed_rank = 0
+    with torch.no_grad():
+        for batch_x, batch_x_stamp in val_loader:
+            batch_x = batch_x.squeeze(0).to(device, non_blocking=True)
+            batch_x_stamp = batch_x_stamp.squeeze(0).to(device, non_blocking=True)
+
+            token_seq_0, token_seq_1 = tokenizer.encode(batch_x, half=True)
+            token_in = [token_seq_0[:, :-1], token_seq_1[:, :-1]]
+            token_out = [token_seq_0[:, 1:], token_seq_1[:, 1:]]
+
+            logits = model(token_in[0], token_in[1], batch_x_stamp[:, :-1, :])
+            val_loss, _, _ = model.module.head.compute_loss(logits[0], logits[1], token_out[0], token_out[1])
+
+            tot_val_loss_sum_rank += val_loss.item()
+            val_batches_processed_rank += 1
+
+    # Reduce validation metrics
+    val_loss_sum_tensor = torch.tensor(tot_val_loss_sum_rank, device=device)
+    val_batches_tensor = torch.tensor(val_batches_processed_rank, device=device)
+    dist.all_reduce(val_loss_sum_tensor, op=dist.ReduceOp.SUM)
+    dist.all_reduce(val_batches_tensor, op=dist.ReduceOp.SUM)
+
+    return val_loss_sum_tensor.item() / val_batches_tensor.item() if val_batches_tensor.item() > 0 else 0
+
+
+def _log_epoch_summary(model, config, save_dir, logger, epoch_idx,
+                       epoch_start_time, start_time, avg_val_loss, best_val_loss):
+    """Print the epoch summary, log metrics, and save the best checkpoint (master process only)."""
+    print(f"\n--- Epoch {epoch_idx + 1}/{config['epochs']} Summary ---")
+    print(f"Validation Loss: {avg_val_loss:.4f}")
+    print(f"Time This Epoch: {format_time(time.time() - epoch_start_time)}")
+    print(f"Total Time Elapsed: {format_time(time.time() - start_time)}\n")
+    if logger:
+        logger.log_metric('val_predictor_loss_epoch', avg_val_loss, epoch=epoch_idx)
+
+    if avg_val_loss < best_val_loss:
+        best_val_loss = avg_val_loss
+        save_path = f"{save_dir}/checkpoints/best_model"
+        model.module.save_pretrained(save_path)
+        print(f"Best model saved to {save_path} (Val Loss: {best_val_loss:.4f})")
+
+    return best_val_loss
 
 
 def main(config: dict):

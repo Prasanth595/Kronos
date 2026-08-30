@@ -154,12 +154,15 @@ class QlibBacktest:
         print("\nExcess Return (w/o cost):", analysis["excess_return_without_cost"], sep='\n')
         print("\nExcess Return (w/ cost):", analysis["excess_return_with_cost"], sep='\n')
 
-        report_df = pd.DataFrame({
-            "cum_bench": report["bench"].cumsum(),
-            "cum_return_w_cost": (report["return"] - report["cost"]).cumsum(),
-            "cum_ex_return_w_cost": (report["return"] - report["bench"] - report["cost"]).cumsum(),
-        })
-        return report_df
+        return pd.DataFrame(
+            {
+                "cum_bench": report["bench"].cumsum(),
+                "cum_return_w_cost": (report["return"] - report["cost"]).cumsum(),
+                "cum_ex_return_w_cost": (
+                    report["return"] - report["bench"] - report["cost"]
+                ).cumsum(),
+            }
+        )
 
     def run_and_plot_results(self, signals: dict[str, pd.DataFrame]):
         """

@@ -116,103 +116,148 @@ def train_model(model, device, config, save_dir, logger, rank, world_size):
 
     for epoch_idx in range(config['epochs']):
         epoch_start_time = time.time()
-        model.train()
-        train_loader.sampler.set_epoch(epoch_idx)
-
-        # Set dataset seeds for reproducible sampling
-        train_dataset.set_epoch_seed(epoch_idx * 10000 + rank)
-        valid_dataset.set_epoch_seed(0)  # Keep validation sampling consistent
-
-        for i, (ori_batch_x, _) in enumerate(train_loader):
-            ori_batch_x = ori_batch_x.squeeze(0).to(device, non_blocking=True)
-
-            # --- Gradient Accumulation Loop ---
-            current_batch_total_loss = 0.0
-            for j in range(config['accumulation_steps']):
-                start_idx = j * (ori_batch_x.shape[0] // config['accumulation_steps'])
-                end_idx = (j + 1) * (ori_batch_x.shape[0] // config['accumulation_steps'])
-                batch_x = ori_batch_x[start_idx:end_idx]
-
-                # Forward pass
-                zs, bsq_loss, _, _ = model(batch_x)
-                z_pre, z = zs
-
-                # Loss calculation
-                recon_loss_pre = F.mse_loss(z_pre, batch_x)
-                recon_loss_all = F.mse_loss(z, batch_x)
-                recon_loss = recon_loss_pre + recon_loss_all
-                loss = (recon_loss + bsq_loss) / 2  # Assuming w_1=w_2=1
-
-                loss_scaled = loss / config['accumulation_steps']
-                current_batch_total_loss += loss.item()
-                loss_scaled.backward()
-
-            # --- Optimizer Step after Accumulation ---
-            torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=2.0)
-            optimizer.step()
-            scheduler.step()
-            optimizer.zero_grad()
-
-            # --- Logging (Master Process Only) ---
-            if rank == 0 and (batch_idx_global_train + 1) % config['log_interval'] == 0:
-                avg_loss = current_batch_total_loss / config['accumulation_steps']
-                print(
-                    f"[Rank {rank}, Epoch {epoch_idx + 1}/{config['epochs']}, Step {i + 1}/{len(train_loader)}] "
-                    f"LR {optimizer.param_groups[0]['lr']:.6f}, Loss: {avg_loss:.4f}"
-                )
-            if rank == 0 and logger:
-                avg_loss = current_batch_total_loss / config['accumulation_steps']
-                logger.log_metric('train_tokenizer_loss_batch', avg_loss, step=batch_idx_global_train)
-                logger.log_metric(f'train_vqvae_vq_loss_each_batch', bsq_loss.item(), step=batch_idx_global_train)
-                logger.log_metric(f'train_recon_loss_pre_each_batch', recon_loss_pre.item(), step=batch_idx_global_train)
-                logger.log_metric(f'train_recon_loss_each_batch', recon_loss_all.item(), step=batch_idx_global_train)
-                logger.log_metric('tokenizer_learning_rate', optimizer.param_groups[0]["lr"], step=batch_idx_global_train)
-
-            batch_idx_global_train += 1
-
-        # --- Validation Loop ---
-        model.eval()
-        tot_val_loss_sum_rank = 0.0
-        val_sample_count_rank = 0
-        with torch.no_grad():
-            for ori_batch_x, _ in val_loader:
-                ori_batch_x = ori_batch_x.squeeze(0).to(device, non_blocking=True)
-                zs, _, _, _ = model(ori_batch_x)
-                _, z = zs
-                val_loss_item = F.mse_loss(z, ori_batch_x)
-
-                tot_val_loss_sum_rank += val_loss_item.item() * ori_batch_x.size(0)
-                val_sample_count_rank += ori_batch_x.size(0)
-
-        # Reduce validation losses from all processes
-        val_loss_sum_tensor = torch.tensor(tot_val_loss_sum_rank, device=device)
-        val_count_tensor = torch.tensor(val_sample_count_rank, device=device)
-        dist.all_reduce(val_loss_sum_tensor, op=dist.ReduceOp.SUM)
-        dist.all_reduce(val_count_tensor, op=dist.ReduceOp.SUM)
-
-        avg_val_loss = val_loss_sum_tensor.item() / val_count_tensor.item() if val_count_tensor.item() > 0 else 0
+        batch_idx_global_train = _train_one_epoch(
+            model, device, config, train_loader, train_dataset, valid_dataset,
+            optimizer, scheduler, logger, rank, epoch_idx, batch_idx_global_train
+        )
+        avg_val_loss = _validate(model, device, val_loader)
 
         # --- End of Epoch Summary & Checkpointing (Master Process Only) ---
         if rank == 0:
-            print(f"\n--- Epoch {epoch_idx + 1}/{config['epochs']} Summary ---")
-            print(f"Validation Loss: {avg_val_loss:.4f}")
-            print(f"Time This Epoch: {format_time(time.time() - epoch_start_time)}")
-            print(f"Total Time Elapsed: {format_time(time.time() - start_time)}\n")
-            if logger:
-                logger.log_metric('val_tokenizer_loss_epoch', avg_val_loss, epoch=epoch_idx)
-
-            if avg_val_loss < best_val_loss:
-                best_val_loss = avg_val_loss
-                save_path = f"{save_dir}/checkpoints/best_model"
-                model.module.save_pretrained(save_path)
-                print(f"Best model saved to {save_path} (Val Loss: {best_val_loss:.4f})")
-                if logger:
-                    logger.log_model("best_model", save_path)
+            best_val_loss = _log_epoch_summary(
+                model, config, save_dir, logger, epoch_idx,
+                epoch_start_time, start_time, avg_val_loss, best_val_loss
+            )
 
         dist.barrier()  # Ensure all processes finish the epoch before starting the next one.
 
     dt_result['best_val_loss'] = best_val_loss
     return model, dt_result
+
+
+def _train_one_epoch(model, device, config, train_loader, train_dataset, valid_dataset,
+                     optimizer, scheduler, logger, rank, epoch_idx, batch_idx_global_train):
+    """Run a single training epoch and return the updated global training batch index."""
+    model.train()
+    train_loader.sampler.set_epoch(epoch_idx)
+
+    # Set dataset seeds for reproducible sampling
+    train_dataset.set_epoch_seed(epoch_idx * 10000 + rank)
+    valid_dataset.set_epoch_seed(0)  # Keep validation sampling consistent
+
+    for i, (ori_batch_x, _) in enumerate(train_loader):
+        ori_batch_x = ori_batch_x.squeeze(0).to(device, non_blocking=True)
+
+        # --- Gradient Accumulation Loop ---
+        current_batch_total_loss, bsq_loss, recon_loss_pre, recon_loss_all = _accumulate_gradients(model, config, ori_batch_x)
+
+        # --- Optimizer Step after Accumulation ---
+        torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=2.0)
+        optimizer.step()
+        scheduler.step()
+        optimizer.zero_grad()
+
+        # --- Logging (Master Process Only) ---
+        if rank == 0 and (batch_idx_global_train + 1) % config['log_interval'] == 0:
+            avg_loss = current_batch_total_loss / config['accumulation_steps']
+            print(
+                f"[Rank {rank}, Epoch {epoch_idx + 1}/{config['epochs']}, Step {i + 1}/{len(train_loader)}] "
+                f"LR {optimizer.param_groups[0]['lr']:.6f}, Loss: {avg_loss:.4f}"
+            )
+        if rank == 0 and logger:
+            avg_loss = current_batch_total_loss / config['accumulation_steps']
+            logger.log_metric('train_tokenizer_loss_batch', avg_loss, step=batch_idx_global_train)
+            logger.log_metric(
+                'train_vqvae_vq_loss_each_batch',
+                bsq_loss.item(),
+                step=batch_idx_global_train,
+            )
+            logger.log_metric(
+                'train_recon_loss_pre_each_batch',
+                recon_loss_pre.item(),
+                step=batch_idx_global_train,
+            )
+            logger.log_metric(
+                'train_recon_loss_each_batch',
+                recon_loss_all.item(),
+                step=batch_idx_global_train,
+            )
+            logger.log_metric('tokenizer_learning_rate', optimizer.param_groups[0]["lr"], step=batch_idx_global_train)
+
+        batch_idx_global_train += 1
+
+    return batch_idx_global_train
+
+
+def _accumulate_gradients(model, config, ori_batch_x):
+    """Accumulate gradients over the accumulation sub-batches of one training batch."""
+    current_batch_total_loss = 0.0
+    for j in range(config['accumulation_steps']):
+        start_idx = j * (ori_batch_x.shape[0] // config['accumulation_steps'])
+        end_idx = (j + 1) * (ori_batch_x.shape[0] // config['accumulation_steps'])
+        batch_x = ori_batch_x[start_idx:end_idx]
+
+        # Forward pass
+        zs, bsq_loss, _, _ = model(batch_x)
+        z_pre, z = zs
+
+        # Loss calculation
+        recon_loss_pre = F.mse_loss(z_pre, batch_x)
+        recon_loss_all = F.mse_loss(z, batch_x)
+        recon_loss = recon_loss_pre + recon_loss_all
+        loss = (recon_loss + bsq_loss) / 2  # Assuming w_1=w_2=1
+
+        loss_scaled = loss / config['accumulation_steps']
+        current_batch_total_loss += loss.item()
+        loss_scaled.backward()
+
+    return current_batch_total_loss, bsq_loss, recon_loss_pre, recon_loss_all
+
+
+def _validate(model, device, val_loader):
+    """Run the validation loop and return the sample-weighted loss averaged over all ranks."""
+    # --- Validation Loop ---
+    model.eval()
+    tot_val_loss_sum_rank = 0.0
+    val_sample_count_rank = 0
+    with torch.no_grad():
+        for ori_batch_x, _ in val_loader:
+            ori_batch_x = ori_batch_x.squeeze(0).to(device, non_blocking=True)
+            zs, _, _, _ = model(ori_batch_x)
+            _, z = zs
+            val_loss_item = F.mse_loss(z, ori_batch_x)
+
+            tot_val_loss_sum_rank += val_loss_item.item() * ori_batch_x.size(0)
+            val_sample_count_rank += ori_batch_x.size(0)
+
+    # Reduce validation losses from all processes
+    val_loss_sum_tensor = torch.tensor(tot_val_loss_sum_rank, device=device)
+    val_count_tensor = torch.tensor(val_sample_count_rank, device=device)
+    dist.all_reduce(val_loss_sum_tensor, op=dist.ReduceOp.SUM)
+    dist.all_reduce(val_count_tensor, op=dist.ReduceOp.SUM)
+
+    return val_loss_sum_tensor.item() / val_count_tensor.item() if val_count_tensor.item() > 0 else 0
+
+
+def _log_epoch_summary(model, config, save_dir, logger, epoch_idx,
+                       epoch_start_time, start_time, avg_val_loss, best_val_loss):
+    """Print the epoch summary, log metrics, and save the best checkpoint (master process only)."""
+    print(f"\n--- Epoch {epoch_idx + 1}/{config['epochs']} Summary ---")
+    print(f"Validation Loss: {avg_val_loss:.4f}")
+    print(f"Time This Epoch: {format_time(time.time() - epoch_start_time)}")
+    print(f"Total Time Elapsed: {format_time(time.time() - start_time)}\n")
+    if logger:
+        logger.log_metric('val_tokenizer_loss_epoch', avg_val_loss, epoch=epoch_idx)
+
+    if avg_val_loss < best_val_loss:
+        best_val_loss = avg_val_loss
+        save_path = f"{save_dir}/checkpoints/best_model"
+        model.module.save_pretrained(save_path)
+        print(f"Best model saved to {save_path} (Val Loss: {best_val_loss:.4f})")
+        if logger:
+            logger.log_model("best_model", save_path)
+
+    return best_val_loss
 
 
 def main(config: dict):

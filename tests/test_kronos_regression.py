@@ -33,6 +33,31 @@ MAX_CTX_LEN = 512
 SEED = 123
 DEVICE = "cpu"
 
+def _compute_mse_values(df, sample_indices, predictor, context_len):
+    """Run inference for each sampled row and collect per-row MSE values."""
+    mse_values = []
+    with torch.no_grad():
+        for row_idx in tqdm(sample_indices):
+            context_slice = df.iloc[row_idx - context_len : row_idx].copy()
+            future_slice = df.iloc[row_idx : row_idx + MSE_PRED_LEN].copy()
+
+            pred_df = predictor.predict(
+                df=context_slice[FEATURE_NAMES].reset_index(drop=True),
+                x_timestamp=context_slice["timestamps"].reset_index(drop=True),
+                y_timestamp=future_slice["timestamps"].reset_index(drop=True),
+                pred_len=MSE_PRED_LEN,
+                T=1.0,
+                top_k=1,
+                top_p=1.0,
+                verbose=False,
+                sample_count=1,
+            )
+
+            obtained = pred_df[MSE_FEATURE_NAMES].to_numpy(dtype=np.float32)
+            expected = future_slice[MSE_FEATURE_NAMES].to_numpy(dtype=np.float32)
+            mse_values.append(float(np.mean((obtained - expected) ** 2)))
+    return mse_values
+
 def set_seed(seed: int) -> None:
     random.seed(seed)
     np.random.seed(seed)
@@ -108,29 +133,9 @@ def test_kronos_predictor_mse(context_len, expected_mse):
 
     sampled_rows = valid_region.sample(n=MSE_SAMPLE_SIZE, random_state=SEED).sort_index()
 
-    mse_values = []
     sample_indices = sampled_rows.index.to_list()
-    with torch.no_grad():
-        for row_idx in tqdm(sample_indices):
-            context_slice = df.iloc[row_idx - context_len : row_idx].copy()
-            future_slice = df.iloc[row_idx : row_idx + MSE_PRED_LEN].copy()
 
-            pred_df = predictor.predict(
-                df=context_slice[FEATURE_NAMES].reset_index(drop=True),
-                x_timestamp=context_slice["timestamps"].reset_index(drop=True),
-                y_timestamp=future_slice["timestamps"].reset_index(drop=True),
-                pred_len=MSE_PRED_LEN,
-                T=1.0,
-                top_k=1,
-                top_p=1.0,
-                verbose=False,
-                sample_count=1,
-            )
-
-            obtained = pred_df[MSE_FEATURE_NAMES].to_numpy(dtype=np.float32)
-            expected = future_slice[MSE_FEATURE_NAMES].to_numpy(dtype=np.float32)
-            mse_values.append(float(np.mean((obtained - expected) ** 2)))
-
+    mse_values = _compute_mse_values(df, sample_indices, predictor, context_len)
     assert len(mse_values) == MSE_SAMPLE_SIZE, f"Expected {MSE_SAMPLE_SIZE} MSE values, got {len(mse_values)}."
 
     mse = np.mean(mse_values).item()

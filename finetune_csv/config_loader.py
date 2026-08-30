@@ -27,13 +27,13 @@ class ConfigLoader:
         exp_name = config.get('model_paths', {}).get('exp_name', '')
         if not exp_name:
             return config
-        
+
         base_path = config.get('model_paths', {}).get('base_path', '')
         path_templates = {
             'base_save_path': f"{base_path}/{exp_name}",
             'finetuned_tokenizer': f"{base_path}/{exp_name}/tokenizer/best_model"
         }
-        
+
         if 'model_paths' in config:
             for key, template in path_templates.items():
                 if key in config['model_paths']:
@@ -41,11 +41,9 @@ class ConfigLoader:
                     current_value = config['model_paths'][key]
                     if current_value == "" or current_value is None:
                         config['model_paths'][key] = template
-                    else:
-                        # if the original value is not empty, use template to replace the {exp_name} placeholder
-                        if isinstance(current_value, str) and '{exp_name}' in current_value:
-                            config['model_paths'][key] = current_value.format(exp_name=exp_name)
-        
+                    elif isinstance(current_value, str) and '{exp_name}' in current_value:
+                        config['model_paths'][key] = current_value.format(exp_name=exp_name)
+
         return config
     
     def get(self, key: str, default=None):
@@ -82,12 +80,9 @@ class ConfigLoader:
 
         def update_nested_dict(d, u):
             for k, v in u.items():
-                if isinstance(v, dict):
-                    d[k] = update_nested_dict(d.get(k, {}), v)
-                else:
-                    d[k] = v
+                d[k] = update_nested_dict(d.get(k, {}), v) if isinstance(v, dict) else v
             return d
-        
+
         self.config = update_nested_dict(self.config, updates)
     
     def save_config(self, save_path: str = None):

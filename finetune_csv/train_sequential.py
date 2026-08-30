@@ -44,9 +44,8 @@ class SequentialTrainer:
                 dist.init_process_group(backend=backend)
             if self.rank == 0:
                 print(f"Distributed training initialized: backend={backend}, world_size={self.world_size}")
-        else:
-            if self.rank == 0:
-                print("Distributed training not enabled, using single GPU/CPU training")
+        elif self.rank == 0:
+            print("Distributed training not enabled, using single GPU/CPU training")
     
     def _check_existing_models(self):
         tokenizer_exists = os.path.exists(self.config.tokenizer_best_model_path)
@@ -67,17 +66,17 @@ class SequentialTrainer:
         print("\n" + "="*60)
         print("Starting Tokenizer Fine-tuning Phase")
         print("="*60)
-        
+
         tokenizer_exists, _ = self._check_existing_models()
         if tokenizer_exists and self.config.skip_existing:
             print("Tokenizer model already exists, skipping training")
             return True
-        
+
         log_dir = os.path.join(self.config.base_save_path, "logs")
         logger = setup_tokenizer_logging(self.config.exp_name, log_dir, self.rank)
-        
+
         set_seed(self.config.seed)
-        
+
         if getattr(self.config, 'pre_trained_tokenizer', True):
             logger.info("Loading pretrained tokenizer...")
             if self.rank == 0:
@@ -109,12 +108,12 @@ class SequentialTrainer:
                 group_size=arch.get('group_size', 4)
             )
         tokenizer = tokenizer.to(self.device)
-        
+
         model_size = sum(p.numel() for p in tokenizer.parameters())
         logger.info(f"Tokenizer parameters: {model_size:,}")
         if self.rank == 0:
             print(f"Tokenizer parameters: {model_size:,}")
-        
+
         logger.info("=== Training Configuration ===")
         logger.info(f"Data path: {self.config.data_path}")
         logger.info(f"Lookback window: {self.config.lookback_window}")
@@ -123,8 +122,8 @@ class SequentialTrainer:
         logger.info(f"Learning rate: {self.config.tokenizer_learning_rate}")
         logger.info(f"Training epochs: {self.config.tokenizer_epochs}")
         logger.info(f"Device: {self.device}")
-        logger.info(f"Distributed training: False")
-        
+        logger.info("Distributed training: False")
+
         logger.info("Starting tokenizer fine-tuning training...")
         if self.rank == 0:
             print("Starting tokenizer fine-tuning training...")
@@ -137,12 +136,12 @@ class SequentialTrainer:
             logger,
         )
         training_time = time.time() - start_time
-        
+
         final_msg = f"Tokenizer training completed! Best validation loss: {best_val_loss:.4f}\nTraining time: {training_time/60:.2f} minutes\nModel saved to: {self.config.tokenizer_save_path}"
         logger.info(final_msg)
         if self.rank == 0:
             print(f"\n{final_msg}")
-        
+
         return True
     
     def train_basemodel_phase(self):
@@ -150,9 +149,8 @@ class SequentialTrainer:
         print("Starting Basemodel Fine-tuning Phase")
         print("="*60)
         
-        if getattr(self.config, 'pre_trained_tokenizer', True):
-            if not os.path.exists(self.config.finetuned_tokenizer_path):
-                raise FileNotFoundError(f"Fine-tuned tokenizer does not exist: {self.config.finetuned_tokenizer_path}")
+        if getattr(self.config, 'pre_trained_tokenizer', True) and not os.path.exists(self.config.finetuned_tokenizer_path):
+            raise FileNotFoundError(f"Fine-tuned tokenizer does not exist: {self.config.finetuned_tokenizer_path}")
         
         _, basemodel_exists = self._check_existing_models()
         if basemodel_exists and self.config.skip_existing:
@@ -326,21 +324,19 @@ def main():
                        help='Skip basemodel training phase')
     parser.add_argument('--skip-existing', action='store_true', 
                        help='Skip training for existing models')
-    
+
     args = parser.parse_args()
-    
+
     trainer = SequentialTrainer(args.config)
-    
+
     if args.skip_tokenizer:
         trainer.config.train_tokenizer = False
     if args.skip_basemodel:
         trainer.config.train_basemodel = False
     if args.skip_existing:
         trainer.config.skip_existing = True
-    
-    success = trainer.run_training()
-    
-    if success:
+
+    if success := trainer.run_training():
         print("Training completed successfully!")
         if dist.is_available() and dist.is_initialized():
             dist.barrier()

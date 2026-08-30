@@ -372,9 +372,8 @@ def top_k_top_p_filtering(
 
 def sample_from_logits(logits, temperature=1.0, top_k=None, top_p=None, sample_logits=True):
     logits = logits / temperature
-    if top_k is not None or top_p is not None:
-        if top_k > 0 or top_p < 1.0:
-            logits = top_k_top_p_filtering(logits, top_k=top_k, top_p=top_p)
+    if (top_k is not None or top_p is not None) and (top_k > 0 or top_p < 1.0):
+        logits = top_k_top_p_filtering(logits, top_k=top_k, top_p=top_p)
 
     probs = F.softmax(logits, dim=-1)
 
@@ -396,7 +395,7 @@ def auto_regressive_inference(tokenizer, model, x, x_stamp, y_stamp, max_context
         y_stamp = y_stamp.unsqueeze(1).repeat(1, sample_count, 1, 1).reshape(-1, y_stamp.size(1), y_stamp.size(2)).to(device)
 
         x_token = tokenizer.encode(x, half=True)
-        
+
         initial_seq_len = x.size(1)
         batch_size = x_token[0].size(0)
         total_seq_len = initial_seq_len + pred_len
@@ -413,10 +412,7 @@ def auto_regressive_inference(tokenizer, model, x, x_stamp, y_stamp, max_context
             pre_buffer[:, :buffer_len] = x_token[0][:, start_idx:start_idx + buffer_len]
             post_buffer[:, :buffer_len] = x_token[1][:, start_idx:start_idx + buffer_len]
 
-        if verbose:
-            ran = trange
-        else:
-            ran = range
+        ran = trange if verbose else range
         for i in ran(pred_len):
             current_seq_len = initial_seq_len + i
             window_len = min(current_seq_len, max_context)
@@ -521,7 +517,7 @@ class KronosPredictor:
         if not isinstance(df, pd.DataFrame):
             raise ValueError("Input must be a pandas DataFrame.")
 
-        if not all(col in df.columns for col in self.price_cols):
+        if any(col not in df.columns for col in self.price_cols):
             raise ValueError(f"Price columns {self.price_cols} not found in DataFrame.")
 
         df = df.copy()
@@ -555,8 +551,11 @@ class KronosPredictor:
         preds = preds.squeeze(0)
         preds = preds * (x_std + 1e-5) + x_mean
 
-        pred_df = pd.DataFrame(preds, columns=self.price_cols + [self.vol_col, self.amt_vol], index=y_timestamp)
-        return pred_df
+        return pd.DataFrame(
+            preds,
+            columns=self.price_cols + [self.vol_col, self.amt_vol],
+            index=y_timestamp,
+        )
 
 
     def predict_batch(self, df_list, x_timestamp_list, y_timestamp_list, pred_len, T=1.0, top_k=0, top_p=0.9, sample_count=1, verbose=True):
@@ -595,40 +594,9 @@ class KronosPredictor:
         y_lens = []
 
         for i in range(num_series):
-            df = df_list[i]
-            if not isinstance(df, pd.DataFrame):
-                raise ValueError(f"Input at index {i} is not a pandas DataFrame.")
-            if not all(col in df.columns for col in self.price_cols):
-                raise ValueError(f"DataFrame at index {i} is missing price columns {self.price_cols}.")
-
-            df = df.copy()
-            if self.vol_col not in df.columns:
-                df[self.vol_col] = 0.0
-                df[self.amt_vol] = 0.0
-            if self.amt_vol not in df.columns and self.vol_col in df.columns:
-                df[self.amt_vol] = df[self.vol_col] * df[self.price_cols].mean(axis=1)
-
-            if df[self.price_cols + [self.vol_col, self.amt_vol]].isnull().values.any():
-                raise ValueError(f"DataFrame at index {i} contains NaN values in price or volume columns.")
-
-            x_timestamp = x_timestamp_list[i]
-            y_timestamp = y_timestamp_list[i]
-
-            x_time_df = calc_time_stamps(x_timestamp)
-            y_time_df = calc_time_stamps(y_timestamp)
-
-            x = df[self.price_cols + [self.vol_col, self.amt_vol]].values.astype(np.float32)
-            x_stamp = x_time_df.values.astype(np.float32)
-            y_stamp = y_time_df.values.astype(np.float32)
-
-            if x.shape[0] != x_stamp.shape[0]:
-                raise ValueError(f"Inconsistent lengths at index {i}: x has {x.shape[0]} vs x_stamp has {x_stamp.shape[0]}.")
-            if y_stamp.shape[0] != pred_len:
-                raise ValueError(f"y_timestamp length at index {i} should equal pred_len={pred_len}, got {y_stamp.shape[0]}.")
-
-            x_mean, x_std = np.mean(x, axis=0), np.std(x, axis=0)
-            x_norm = (x - x_mean) / (x_std + 1e-5)
-            x_norm = np.clip(x_norm, -self.clip, self.clip)
+            x_norm, x_stamp, y_stamp, x_mean, x_std = self._prepare_batch_series(
+                df_list[i], x_timestamp_list[i], y_timestamp_list[i], pred_len, i
+            )
 
             x_list.append(x_norm)
             x_stamp_list.append(x_stamp)
@@ -652,11 +620,51 @@ class KronosPredictor:
         preds = self.generate(x_batch, x_stamp_batch, y_stamp_batch, pred_len, T, top_k, top_p, sample_count, verbose)
         # preds: (B, pred_len, feat)
 
+        return self._build_batch_pred_dfs(preds, means, stds, y_timestamp_list)
+
+    def _prepare_batch_series(self, df, x_timestamp, y_timestamp, pred_len, index):
+        """Validate, align and normalize a single series for parallel prediction."""
+        if not isinstance(df, pd.DataFrame):
+            raise ValueError(f"Input at index {index} is not a pandas DataFrame.")
+        if any(col not in df.columns for col in self.price_cols):
+            raise ValueError(f"DataFrame at index {index} is missing price columns {self.price_cols}.")
+
+        df = df.copy()
+        if self.vol_col not in df.columns:
+            df[self.vol_col] = 0.0
+            df[self.amt_vol] = 0.0
+        if self.amt_vol not in df.columns and self.vol_col in df.columns:
+            df[self.amt_vol] = df[self.vol_col] * df[self.price_cols].mean(axis=1)
+
+        if df[self.price_cols + [self.vol_col, self.amt_vol]].isnull().values.any():
+            raise ValueError(f"DataFrame at index {index} contains NaN values in price or volume columns.")
+
+        x_time_df = calc_time_stamps(x_timestamp)
+        y_time_df = calc_time_stamps(y_timestamp)
+
+        x = df[self.price_cols + [self.vol_col, self.amt_vol]].values.astype(np.float32)
+        x_stamp = x_time_df.values.astype(np.float32)
+        y_stamp = y_time_df.values.astype(np.float32)
+
+        if x.shape[0] != x_stamp.shape[0]:
+            raise ValueError(f"Inconsistent lengths at index {index}: x has {x.shape[0]} vs x_stamp has {x_stamp.shape[0]}.")
+        if y_stamp.shape[0] != pred_len:
+            raise ValueError(f"y_timestamp length at index {index} should equal pred_len={pred_len}, got {y_stamp.shape[0]}.")
+
+        x_mean, x_std = np.mean(x, axis=0), np.std(x, axis=0)
+        x_norm = (x - x_mean) / (x_std + 1e-5)
+        x_norm = np.clip(x_norm, -self.clip, self.clip)
+
+        return x_norm, x_stamp, y_stamp, x_mean, x_std
+
+    def _build_batch_pred_dfs(self, preds, means, stds, y_timestamp_list):
+        """Denormalize batch predictions and build one DataFrame per series."""
         pred_dfs = []
-        for i in range(num_series):
+        for i in range(len(y_timestamp_list)):
             preds_i = preds[i] * (stds[i] + 1e-5) + means[i]
             pred_df = pd.DataFrame(preds_i, columns=self.price_cols + [self.vol_col, self.amt_vol], index=y_timestamp_list[i])
             pred_dfs.append(pred_df)
 
         return pred_dfs
+
 

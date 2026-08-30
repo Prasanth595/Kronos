@@ -84,12 +84,12 @@ def load_data_file(file_path):
             df = pd.read_feather(file_path)
         else:
             return None, "Unsupported file format"
-        
+
         # Check required columns
         required_cols = ['open', 'high', 'low', 'close']
-        if not all(col in df.columns for col in required_cols):
+        if any(col not in df.columns for col in required_cols):
             return None, f"Missing required columns: {required_cols}"
-        
+
         # Process timestamp column
         if 'timestamps' in df.columns:
             df['timestamps'] = pd.to_datetime(df['timestamps'])
@@ -101,24 +101,24 @@ def load_data_file(file_path):
         else:
             # If no timestamp column exists, create one
             df['timestamps'] = pd.date_range(start='2024-01-01', periods=len(df), freq='1H')
-        
+
         # Ensure numeric columns are numeric type
         for col in ['open', 'high', 'low', 'close']:
             df[col] = pd.to_numeric(df[col], errors='coerce')
-        
+
         # Process volume column (optional)
         if 'volume' in df.columns:
             df['volume'] = pd.to_numeric(df['volume'], errors='coerce')
-        
+
         # Process amount column (optional, but not used for prediction)
         if 'amount' in df.columns:
             df['amount'] = pd.to_numeric(df['amount'], errors='coerce')
-        
+
         # Remove rows containing NaN values
         df = df.dropna()
-        
+
         return df, None
-        
+
     except Exception as e:
         return None, f"Failed to load file: {str(e)}"
 
@@ -128,12 +128,12 @@ def save_prediction_results(file_path, prediction_type, prediction_results, actu
         # Create prediction results directory
         results_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'prediction_results')
         os.makedirs(results_dir, exist_ok=True)
-        
+
         # Generate filename
         timestamp = datetime.datetime.now().strftime('%Y%m%d_%H%M%S')
         filename = f'prediction_{timestamp}.json'
         filepath = os.path.join(results_dir, filename)
-        
+
         # Prepare data for saving
         save_data = {
             'timestamp': datetime.datetime.now().isoformat(),
@@ -160,14 +160,14 @@ def save_prediction_results(file_path, prediction_type, prediction_results, actu
             'actual_data': actual_data,
             'analysis': {}
         }
-        
+
         # If actual data exists, perform comparison analysis
         if actual_data and len(actual_data) > 0:
             # Calculate continuity analysis
-            if len(prediction_results) > 0 and len(actual_data) > 0:
+            if len(prediction_results) > 0:
                 last_pred = prediction_results[0]  # First prediction point
             first_actual = actual_data[0]      # First actual point
-                
+
             save_data['analysis']['continuity'] = {
                     'last_prediction': {
                         'open': last_pred['open'],
@@ -194,14 +194,14 @@ def save_prediction_results(file_path, prediction_type, prediction_results, actu
                         'close_gap_pct': (abs(last_pred['close'] - first_actual['close']) / first_actual['close']) * 100
                     }
                 }
-        
+
         # Save to file
         with open(filepath, 'w', encoding='utf-8') as f:
             json.dump(save_data, f, indent=2, ensure_ascii=False)
-        
+
         print(f"Prediction results saved to: {filepath}")
         return filepath
-        
+
     except Exception as e:
         print(f"Failed to save prediction results: {e}")
         return None
@@ -209,49 +209,18 @@ def save_prediction_results(file_path, prediction_type, prediction_results, actu
 def create_prediction_chart(df, pred_df, lookback, pred_len, actual_df=None, historical_start_idx=0):
     """Create prediction chart"""
     # Use specified historical data start position, not always from the beginning of df
-    if historical_start_idx + lookback + pred_len <= len(df):
-        # Display lookback historical points + pred_len prediction points starting from specified position
-        historical_df = df.iloc[historical_start_idx:historical_start_idx+lookback]
-        prediction_range = range(historical_start_idx+lookback, historical_start_idx+lookback+pred_len)
-    else:
-        # If data is insufficient, adjust to maximum available range
-        available_lookback = min(lookback, len(df) - historical_start_idx)
-        available_pred_len = min(pred_len, max(0, len(df) - historical_start_idx - available_lookback))
-        historical_df = df.iloc[historical_start_idx:historical_start_idx+available_lookback]
-        prediction_range = range(historical_start_idx+available_lookback, historical_start_idx+available_lookback+available_pred_len)
-    
+    historical_df, prediction_range = _slice_chart_window(df, lookback, pred_len, historical_start_idx)
+
     # Create chart
     fig = go.Figure()
-    
+
     # Add historical data (candlestick chart)
-    fig.add_trace(go.Candlestick(
-        x=historical_df['timestamps'] if 'timestamps' in historical_df.columns else historical_df.index,
-        open=historical_df['open'],
-        high=historical_df['high'],
-        low=historical_df['low'],
-        close=historical_df['close'],
-        name='Historical Data (400 data points)',
-        increasing_line_color='#26A69A',
-        decreasing_line_color='#EF5350'
-    ))
-    
+    _add_historical_candlestick(fig, historical_df)
+
     # Add prediction data (candlestick chart)
+    pred_timestamps = None
     if pred_df is not None and len(pred_df) > 0:
-        # Calculate prediction data timestamps - ensure continuity with historical data
-        if 'timestamps' in df.columns and len(historical_df) > 0:
-            # Start from the last timestamp of historical data, create prediction timestamps with the same time interval
-            last_timestamp = historical_df['timestamps'].iloc[-1]
-            time_diff = df['timestamps'].iloc[1] - df['timestamps'].iloc[0] if len(df) > 1 else pd.Timedelta(hours=1)
-            
-            pred_timestamps = pd.date_range(
-                start=last_timestamp + time_diff,
-                periods=len(pred_df),
-                freq=time_diff
-            )
-        else:
-            # If no timestamps, use index
-            pred_timestamps = range(len(historical_df), len(historical_df) + len(pred_df))
-        
+        pred_timestamps = _compute_pred_timestamps(df, historical_df, len(pred_df))
         fig.add_trace(go.Candlestick(
             x=pred_timestamps,
             open=pred_df['open'],
@@ -262,29 +231,11 @@ def create_prediction_chart(df, pred_df, lookback, pred_len, actual_df=None, his
             increasing_line_color='#66BB6A',
             decreasing_line_color='#FF7043'
         ))
-    
+
     # Add actual data for comparison (if exists)
+    actual_timestamps = None
     if actual_df is not None and len(actual_df) > 0:
-        # Actual data should be in the same time period as prediction data
-        if 'timestamps' in df.columns:
-            # Actual data should use the same timestamps as prediction data to ensure time alignment
-            if 'pred_timestamps' in locals():
-                actual_timestamps = pred_timestamps
-            else:
-                # If no prediction timestamps, calculate from the last timestamp of historical data
-                if len(historical_df) > 0:
-                    last_timestamp = historical_df['timestamps'].iloc[-1]
-                    time_diff = df['timestamps'].iloc[1] - df['timestamps'].iloc[0] if len(df) > 1 else pd.Timedelta(hours=1)
-                    actual_timestamps = pd.date_range(
-                        start=last_timestamp + time_diff,
-                        periods=len(actual_df),
-                        freq=time_diff
-                    )
-                else:
-                    actual_timestamps = range(len(historical_df), len(historical_df) + len(actual_df))
-        else:
-            actual_timestamps = range(len(historical_df), len(historical_df) + len(actual_df))
-        
+        actual_timestamps = _resolve_actual_timestamps(df, historical_df, actual_df, pred_timestamps)
         fig.add_trace(go.Candlestick(
             x=actual_timestamps,
             open=actual_df['open'],
@@ -295,7 +246,7 @@ def create_prediction_chart(df, pred_df, lookback, pred_len, actual_df=None, his
             increasing_line_color='#FF9800',
             decreasing_line_color='#F44336'
         ))
-    
+
     # Update layout
     fig.update_layout(
         title='Kronos Financial Prediction Results - 400 Historical Points + 120 Prediction Points vs 120 Actual Points',
@@ -305,18 +256,92 @@ def create_prediction_chart(df, pred_df, lookback, pred_len, actual_df=None, his
         height=600,
         showlegend=True
     )
-    
+
     # Ensure x-axis time continuity
+    _apply_time_axis_range(fig, historical_df, pred_timestamps, actual_timestamps)
+
+    return json.dumps(fig, cls=plotly.utils.PlotlyJSONEncoder)
+
+
+def _slice_chart_window(df, lookback, pred_len, historical_start_idx):
+    """Slice the historical window to display on the chart from df."""
+    if historical_start_idx + lookback + pred_len <= len(df):
+        # Display lookback historical points + pred_len prediction points starting from specified position
+        historical_df = df.iloc[historical_start_idx:historical_start_idx+lookback]
+        prediction_range = range(historical_start_idx+lookback, historical_start_idx+lookback+pred_len)
+    else:
+        # If data is insufficient, adjust to maximum available range
+        available_lookback = min(lookback, len(df) - historical_start_idx)
+        available_pred_len = min(pred_len, max(0, len(df) - historical_start_idx - available_lookback))
+        historical_df = df.iloc[historical_start_idx:historical_start_idx+available_lookback]
+        prediction_range = range(historical_start_idx+available_lookback, historical_start_idx+available_lookback+available_pred_len)
+
+    return historical_df, prediction_range
+
+
+def _add_historical_candlestick(fig, historical_df):
+    """Add the historical data candlestick trace to the chart."""
+    fig.add_trace(go.Candlestick(
+        x=historical_df['timestamps'] if 'timestamps' in historical_df.columns else historical_df.index,
+        open=historical_df['open'],
+        high=historical_df['high'],
+        low=historical_df['low'],
+        close=historical_df['close'],
+        name='Historical Data (400 data points)',
+        increasing_line_color='#26A69A',
+        decreasing_line_color='#EF5350'
+    ))
+
+
+def _compute_pred_timestamps(df, historical_df, num_points):
+    """Build timestamps for the prediction trace."""
+    # Calculate prediction data timestamps - ensure continuity with historical data
+    if 'timestamps' in df.columns and len(historical_df) > 0:
+        # Start from the last timestamp of historical data, create prediction timestamps with the same time interval
+        last_timestamp = historical_df['timestamps'].iloc[-1]
+        time_diff = df['timestamps'].iloc[1] - df['timestamps'].iloc[0] if len(df) > 1 else pd.Timedelta(hours=1)
+
+        return pd.date_range(
+            start=last_timestamp + time_diff,
+            periods=num_points,
+            freq=time_diff
+        )
+    # If no timestamps, use index
+    return range(len(historical_df), len(historical_df) + num_points)
+
+
+def _resolve_actual_timestamps(df, historical_df, actual_df, pred_timestamps):
+    """Resolve x-axis timestamps for the actual data trace."""
+    # Actual data should be in the same time period as prediction data
+    if (
+        'timestamps' in df.columns
+        and pred_timestamps is None
+        and len(historical_df) > 0
+    ):
+        last_timestamp = historical_df['timestamps'].iloc[-1]
+        time_diff = df['timestamps'].iloc[1] - df['timestamps'].iloc[0] if len(df) > 1 else pd.Timedelta(hours=1)
+        return pd.date_range(
+            start=last_timestamp + time_diff,
+            periods=len(actual_df),
+            freq=time_diff
+        )
+    if 'timestamps' not in df.columns or pred_timestamps is None:
+        return range(len(historical_df), len(historical_df) + len(actual_df))
+    return pred_timestamps
+
+
+def _apply_time_axis_range(fig, historical_df, pred_timestamps, actual_timestamps):
+    """Ensure x-axis time continuity across all displayed traces."""
     if 'timestamps' in historical_df.columns:
         # Get all timestamps and sort them
         all_timestamps = []
         if len(historical_df) > 0:
             all_timestamps.extend(historical_df['timestamps'])
-        if 'pred_timestamps' in locals():
+        if pred_timestamps is not None:
             all_timestamps.extend(pred_timestamps)
-        if 'actual_timestamps' in locals():
+        if actual_timestamps is not None:
             all_timestamps.extend(actual_timestamps)
-        
+
         if all_timestamps:
             all_timestamps = sorted(all_timestamps)
             fig.update_xaxes(
@@ -324,8 +349,7 @@ def create_prediction_chart(df, pred_df, lookback, pred_len, actual_df=None, his
                 rangeslider_visible=False,
                 type='date'
             )
-    
-    return json.dumps(fig, cls=plotly.utils.PlotlyJSONEncoder)
+
 
 @app.route('/')
 def index():
@@ -406,222 +430,276 @@ def predict():
     """Perform prediction"""
     try:
         data = request.get_json()
-        file_path = data.get('file_path')
-        lookback = int(data.get('lookback', 400))
-        pred_len = int(data.get('pred_len', 120))
-        
-        # Get prediction quality parameters
-        temperature = float(data.get('temperature', 1.0))
-        top_p = float(data.get('top_p', 0.9))
-        sample_count = int(data.get('sample_count', 1))
-        
+        file_path, lookback, pred_len, temperature, top_p, sample_count = _parse_predict_request(data)
+
         if not file_path:
             return jsonify({'error': 'File path cannot be empty'}), 400
-        
+
         # Load data
         df, error = load_data_file(file_path)
         if error:
             return jsonify({'error': error}), 400
-        
+
         if len(df) < lookback:
             return jsonify({'error': f'Insufficient data length, need at least {lookback} rows'}), 400
-        
-        # Perform prediction
-        if MODEL_AVAILABLE and predictor is not None:
-            try:
-                # Use real Kronos model
-                # Only use necessary columns: OHLCV, excluding amount
-                required_cols = ['open', 'high', 'low', 'close']
-                if 'volume' in df.columns:
-                    required_cols.append('volume')
-                
-                # Process time period selection
-                start_date = data.get('start_date')
-                
-                if start_date:
-                    # Custom time period - fix logic: use data within selected window
-                    start_dt = pd.to_datetime(start_date)
-                    
-                    # Find data after start time
-                    mask = df['timestamps'] >= start_dt
-                    time_range_df = df[mask]
-                    
-                    # Ensure sufficient data: lookback + pred_len
-                    if len(time_range_df) < lookback + pred_len:
-                        return jsonify({'error': f'Insufficient data from start time {start_dt.strftime("%Y-%m-%d %H:%M")}, need at least {lookback + pred_len} data points, currently only {len(time_range_df)} available'}), 400
-                    
-                    # Use first lookback data points within selected window for prediction
-                    x_df = time_range_df.iloc[:lookback][required_cols]
-                    x_timestamp = time_range_df.iloc[:lookback]['timestamps']
-                    
-                    # Use last pred_len data points within selected window as actual values
-                    y_timestamp = time_range_df.iloc[lookback:lookback+pred_len]['timestamps']
-                    
-                    # Calculate actual time period length
-                    start_timestamp = time_range_df['timestamps'].iloc[0]
-                    end_timestamp = time_range_df['timestamps'].iloc[lookback+pred_len-1]
-                    time_span = end_timestamp - start_timestamp
-                    
-                    prediction_type = f"Kronos model prediction (within selected window: first {lookback} data points for prediction, last {pred_len} data points for comparison, time span: {time_span})"
-                else:
-                    # Use latest data
-                    x_df = df.iloc[:lookback][required_cols]
-                    x_timestamp = df.iloc[:lookback]['timestamps']
-                    y_timestamp = df.iloc[lookback:lookback+pred_len]['timestamps']
-                    prediction_type = "Kronos model prediction (latest data)"
-                
-                # Ensure timestamps are Series format, not DatetimeIndex, to avoid .dt attribute error in Kronos model
-                if isinstance(x_timestamp, pd.DatetimeIndex):
-                    x_timestamp = pd.Series(x_timestamp, name='timestamps')
-                if isinstance(y_timestamp, pd.DatetimeIndex):
-                    y_timestamp = pd.Series(y_timestamp, name='timestamps')
-                
-                pred_df = predictor.predict(
-                    df=x_df,
-                    x_timestamp=x_timestamp,
-                    y_timestamp=y_timestamp,
-                    pred_len=pred_len,
-                    T=temperature,
-                    top_p=top_p,
-                    sample_count=sample_count
-                )
-                
-            except Exception as e:
-                return jsonify({'error': f'Kronos model prediction failed: {str(e)}'}), 500
-        else:
+
+        if not MODEL_AVAILABLE or predictor is None:
             return jsonify({'error': 'Kronos model not loaded, please load model first'}), 400
-        
+
+        try:
+            # Use real Kronos model
+            # Only use necessary columns: OHLCV, excluding amount
+            required_cols = ['open', 'high', 'low', 'close']
+            if 'volume' in df.columns:
+                required_cols.append('volume')
+
+            # Process time period selection
+            start_date = data.get('start_date')
+
+            x_df, x_timestamp, y_timestamp, prediction_type, prep_error = _prepare_model_inputs(
+                df, start_date, lookback, pred_len, required_cols
+            )
+            if prep_error:
+                return jsonify({'error': prep_error}), 400
+
+            pred_df = predictor.predict(
+                df=x_df,
+                x_timestamp=x_timestamp,
+                y_timestamp=y_timestamp,
+                pred_len=pred_len,
+                T=temperature,
+                top_p=top_p,
+                sample_count=sample_count
+            )
+
+        except Exception as e:
+            return jsonify({'error': f'Kronos model prediction failed: {str(e)}'}), 500
         # Prepare actual data for comparison (if exists)
-        actual_data = []
-        actual_df = None
-        
-        if start_date:  # Custom time period
-            # Fix logic: use data within selected window
-            # Prediction uses first 400 data points within selected window
-            # Actual data should be last 120 data points within selected window
-            start_dt = pd.to_datetime(start_date)
-            
-            # Find data starting from start_date
-            mask = df['timestamps'] >= start_dt
-            time_range_df = df[mask]
-            
-            if len(time_range_df) >= lookback + pred_len:
-                # Get last 120 data points within selected window as actual values
-                actual_df = time_range_df.iloc[lookback:lookback+pred_len]
-                
-                for i, (_, row) in enumerate(actual_df.iterrows()):
-                    actual_data.append({
-                        'timestamp': row['timestamps'].isoformat(),
-                        'open': float(row['open']),
-                        'high': float(row['high']),
-                        'low': float(row['low']),
-                        'close': float(row['close']),
-                        'volume': float(row['volume']) if 'volume' in row else 0,
-                        'amount': float(row['amount']) if 'amount' in row else 0
-                    })
-        else:  # Latest data
-            # Prediction uses first 400 data points
-            # Actual data should be 120 data points after first 400 data points
-            if len(df) >= lookback + pred_len:
-                actual_df = df.iloc[lookback:lookback+pred_len]
-                for i, (_, row) in enumerate(actual_df.iterrows()):
-                    actual_data.append({
-                        'timestamp': row['timestamps'].isoformat(),
-                        'open': float(row['open']),
-                        'high': float(row['high']),
-                        'low': float(row['low']),
-                        'close': float(row['close']),
-                        'volume': float(row['volume']) if 'volume' in row else 0,
-                        'amount': float(row['amount']) if 'amount' in row else 0
-                    })
-        
+        actual_data, actual_df = _collect_actual_data(df, start_date, lookback, pred_len)
+
         # Create chart - pass historical data start position
-        if start_date:
-            # Custom time period: find starting position of historical data in original df
-            start_dt = pd.to_datetime(start_date)
-            mask = df['timestamps'] >= start_dt
-            historical_start_idx = df[mask].index[0] if len(df[mask]) > 0 else 0
-        else:
-            # Latest data: start from beginning
-            historical_start_idx = 0
-        
+        historical_start_idx = _compute_historical_start_idx(df, start_date)
+
         chart_json = create_prediction_chart(df, pred_df, lookback, pred_len, actual_df, historical_start_idx)
-        
+
         # Prepare prediction result data - fix timestamp calculation logic
-        if 'timestamps' in df.columns:
-            if start_date:
-                # Custom time period: use selected window data to calculate timestamps
-                start_dt = pd.to_datetime(start_date)
-                mask = df['timestamps'] >= start_dt
-                time_range_df = df[mask]
-                
-                if len(time_range_df) >= lookback:
-                    # Calculate prediction timestamps starting from last time point of selected window
-                    last_timestamp = time_range_df['timestamps'].iloc[lookback-1]
-                    time_diff = df['timestamps'].iloc[1] - df['timestamps'].iloc[0]
-                    future_timestamps = pd.date_range(
-                        start=last_timestamp + time_diff,
-                        periods=pred_len,
-                        freq=time_diff
-                    )
-                else:
-                    future_timestamps = []
-            else:
-                # Latest data: calculate from last time point of entire data file
-                last_timestamp = df['timestamps'].iloc[-1]
-                time_diff = df['timestamps'].iloc[1] - df['timestamps'].iloc[0]
-                future_timestamps = pd.date_range(
-                    start=last_timestamp + time_diff,
-                    periods=pred_len,
-                    freq=time_diff
-                )
-        else:
-            future_timestamps = range(len(df), len(df) + pred_len)
-        
-        prediction_results = []
-        for i, (_, row) in enumerate(pred_df.iterrows()):
-            prediction_results.append({
-                'timestamp': future_timestamps[i].isoformat() if i < len(future_timestamps) else f"T{i}",
+        future_timestamps = _compute_future_timestamps(df, start_date, lookback, pred_len)
+
+        prediction_results = _build_prediction_results(pred_df, future_timestamps)
+        # Save prediction results to file
+        _save_prediction_output(
+            file_path, prediction_type, prediction_results, actual_data, x_df,
+            lookback, pred_len, temperature, top_p, sample_count, start_date
+        )
+
+        return _build_predict_response(prediction_type, chart_json, prediction_results, actual_data, pred_len)
+
+    except Exception as e:
+        return jsonify({'error': f'Prediction failed: {str(e)}'}), 500
+
+def _parse_predict_request(data):
+    """Parse prediction request parameters from the JSON payload."""
+    file_path = data.get('file_path')
+    lookback = int(data.get('lookback', 400))
+    pred_len = int(data.get('pred_len', 120))
+
+    # Get prediction quality parameters
+    temperature = float(data.get('temperature', 1.0))
+    top_p = float(data.get('top_p', 0.9))
+    sample_count = int(data.get('sample_count', 1))
+
+    return file_path, lookback, pred_len, temperature, top_p, sample_count
+
+def _prepare_model_inputs(df, start_date, lookback, pred_len, required_cols):
+    """Select the prediction window and normalize timestamp inputs for the Kronos model."""
+    if start_date:
+        # Custom time period - fix logic: use data within selected window
+        start_dt = pd.to_datetime(start_date)
+
+        # Find data after start time
+        mask = df['timestamps'] >= start_dt
+        time_range_df = df[mask]
+
+        # Ensure sufficient data: lookback + pred_len
+        if len(time_range_df) < lookback + pred_len:
+            return None, None, None, None, f'Insufficient data from start time {start_dt.strftime("%Y-%m-%d %H:%M")}, need at least {lookback + pred_len} data points, currently only {len(time_range_df)} available'
+
+        # Use first lookback data points within selected window for prediction
+        x_df = time_range_df.iloc[:lookback][required_cols]
+        x_timestamp = time_range_df.iloc[:lookback]['timestamps']
+
+        # Use last pred_len data points within selected window as actual values
+        y_timestamp = time_range_df.iloc[lookback:lookback+pred_len]['timestamps']
+
+        # Calculate actual time period length
+        start_timestamp = time_range_df['timestamps'].iloc[0]
+        end_timestamp = time_range_df['timestamps'].iloc[lookback+pred_len-1]
+        time_span = end_timestamp - start_timestamp
+
+        prediction_type = f"Kronos model prediction (within selected window: first {lookback} data points for prediction, last {pred_len} data points for comparison, time span: {time_span})"
+    else:
+        # Use latest data
+        x_df = df.iloc[:lookback][required_cols]
+        x_timestamp = df.iloc[:lookback]['timestamps']
+        y_timestamp = df.iloc[lookback:lookback+pred_len]['timestamps']
+        prediction_type = "Kronos model prediction (latest data)"
+
+    # Ensure timestamps are Series format, not DatetimeIndex, to avoid .dt attribute error in Kronos model
+    if isinstance(x_timestamp, pd.DatetimeIndex):
+        x_timestamp = pd.Series(x_timestamp, name='timestamps')
+    if isinstance(y_timestamp, pd.DatetimeIndex):
+        y_timestamp = pd.Series(y_timestamp, name='timestamps')
+
+    return x_df, x_timestamp, y_timestamp, prediction_type, None
+
+def _collect_actual_data(df, start_date, lookback, pred_len):
+    """Collect actual data within the prediction window for comparison."""
+    actual_data = []
+    actual_df = None
+
+    if start_date:  # Custom time period
+        # Fix logic: use data within selected window
+        # Prediction uses first 400 data points within selected window
+        # Actual data should be last 120 data points within selected window
+        start_dt = pd.to_datetime(start_date)
+
+        # Find data starting from start_date
+        mask = df['timestamps'] >= start_dt
+        time_range_df = df[mask]
+
+        if len(time_range_df) >= lookback + pred_len:
+            # Get last 120 data points within selected window as actual values
+            actual_df = time_range_df.iloc[lookback:lookback+pred_len]
+
+            actual_data.extend(
+                {
+                    'timestamp': row['timestamps'].isoformat(),
+                    'open': float(row['open']),
+                    'high': float(row['high']),
+                    'low': float(row['low']),
+                    'close': float(row['close']),
+                    'volume': float(row['volume']) if 'volume' in row else 0,
+                    'amount': float(row['amount']) if 'amount' in row else 0,
+                }
+                for _, row in actual_df.iterrows()
+            )
+    elif len(df) >= lookback + pred_len:  # Latest data
+        # Prediction uses first 400 data points
+        # Actual data should be 120 data points after first 400 data points
+        actual_df = df.iloc[lookback:lookback+pred_len]
+        actual_data.extend(
+            {
+                'timestamp': row['timestamps'].isoformat(),
                 'open': float(row['open']),
                 'high': float(row['high']),
                 'low': float(row['low']),
                 'close': float(row['close']),
                 'volume': float(row['volume']) if 'volume' in row else 0,
-                'amount': float(row['amount']) if 'amount' in row else 0
-            })
-        
-        # Save prediction results to file
-        try:
-            save_prediction_results(
-                file_path=file_path,
-                prediction_type=prediction_type,
-                prediction_results=prediction_results,
-                actual_data=actual_data,
-                input_data=x_df,
-                prediction_params={
-                    'lookback': lookback,
-                    'pred_len': pred_len,
-                    'temperature': temperature,
-                    'top_p': top_p,
-                    'sample_count': sample_count,
-                    'start_date': start_date if start_date else 'latest'
-                }
+                'amount': float(row['amount']) if 'amount' in row else 0,
+            }
+            for _, row in actual_df.iterrows()
+        )
+
+    return actual_data, actual_df
+
+def _compute_historical_start_idx(df, start_date):
+    """Locate where the displayed historical data starts in the original df."""
+    if start_date:
+        # Custom time period: find starting position of historical data in original df
+        start_dt = pd.to_datetime(start_date)
+        mask = df['timestamps'] >= start_dt
+        return df[mask].index[0] if len(df[mask]) > 0 else 0
+    # Latest data: start from beginning
+    return 0
+
+def _compute_future_timestamps(df, start_date, lookback, pred_len):
+    """Calculate timestamps for the prediction result points."""
+    if 'timestamps' not in df.columns:
+        return range(len(df), len(df) + pred_len)
+    if start_date:
+        # Custom time period: use selected window data to calculate timestamps
+        start_dt = pd.to_datetime(start_date)
+        mask = df['timestamps'] >= start_dt
+        time_range_df = df[mask]
+
+        if len(time_range_df) >= lookback:
+            # Calculate prediction timestamps starting from last time point of selected window
+            last_timestamp = time_range_df['timestamps'].iloc[lookback-1]
+            time_diff = df['timestamps'].iloc[1] - df['timestamps'].iloc[0]
+            return pd.date_range(
+                start=last_timestamp + time_diff,
+                periods=pred_len,
+                freq=time_diff
             )
-        except Exception as e:
-            print(f"Failed to save prediction results: {e}")
-        
-        return jsonify({
+        return []
+    # Latest data: calculate from last time point of entire data file
+    last_timestamp = df['timestamps'].iloc[-1]
+    time_diff = df['timestamps'].iloc[1] - df['timestamps'].iloc[0]
+    return pd.date_range(
+        start=last_timestamp + time_diff,
+        periods=pred_len,
+        freq=time_diff
+    )
+
+def _build_prediction_results(pred_df, future_timestamps):
+    """Convert the prediction DataFrame into a JSON-serializable list."""
+    return [
+        {
+            'timestamp': (
+                future_timestamps[i].isoformat()
+                if i < len(future_timestamps)
+                else f"T{i}"
+            ),
+            'open': float(row['open']),
+            'high': float(row['high']),
+            'low': float(row['low']),
+            'close': float(row['close']),
+            'volume': float(row['volume']) if 'volume' in row else 0,
+            'amount': float(row['amount']) if 'amount' in row else 0,
+        }
+        for i, (_, row) in enumerate(pred_df.iterrows())
+    ]
+
+def _save_prediction_output(file_path, prediction_type, prediction_results, actual_data, input_df,
+                            lookback, pred_len, temperature, top_p, sample_count, start_date):
+    """Persist prediction results to file, ignoring save failures."""
+    try:
+        save_prediction_results(
+            file_path=file_path,
+            prediction_type=prediction_type,
+            prediction_results=prediction_results,
+            actual_data=actual_data,
+            input_data=input_df,
+            prediction_params={
+                'lookback': lookback,
+                'pred_len': pred_len,
+                'temperature': temperature,
+                'top_p': top_p,
+                'sample_count': sample_count,
+                'start_date': start_date or 'latest'
+            }
+        )
+    except Exception as e:
+        print(f"Failed to save prediction results: {e}")
+
+def _build_predict_response(prediction_type, chart_json, prediction_results, actual_data, pred_len):
+    """Build the JSON response payload for the prediction endpoint."""
+    return jsonify(
+        {
             'success': True,
             'prediction_type': prediction_type,
             'chart': chart_json,
             'prediction_results': prediction_results,
             'actual_data': actual_data,
             'has_comparison': len(actual_data) > 0,
-            'message': f'Prediction completed, generated {pred_len} prediction points' + (f', including {len(actual_data)} actual data points for comparison' if len(actual_data) > 0 else '')
-        })
-        
-    except Exception as e:
-        return jsonify({'error': f'Prediction failed: {str(e)}'}), 500
+            'message': f'Prediction completed, generated {pred_len} prediction points'
+            + (
+                f', including {len(actual_data)} actual data points for comparison'
+                if actual_data
+                else ''
+            ),
+        }
+    )
 
 @app.route('/api/load-model', methods=['POST'])
 def load_model():

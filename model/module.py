@@ -108,13 +108,11 @@ class BinarySphericalQuantizer(nn.Module):
 
         if self.soft_entropy:
             persample_entropy, cb_entropy, avg_prob = self.soft_entropy_loss(z)
-            entropy_penalty = self.gamma0 * persample_entropy - self.gamma * cb_entropy
         else:
             zb_by_sample = ((zq + 1) / 2).reshape(z.shape[0], -1, z.shape[-1]).to(torch.float32)
             persample_entropy = self.get_hard_per_sample_entropy(zb_by_sample)
             cb_entropy = codebook_entropy(zq, self.basis, self.embed_dim)
-            entropy_penalty = self.gamma0 * persample_entropy - self.gamma * cb_entropy
-
+        entropy_penalty = self.gamma0 * persample_entropy - self.gamma * cb_entropy
         # commit loss
         commit_loss = self.beta * torch.mean(((zq.detach() - z) ** 2).sum(dim=-1))
 
@@ -143,10 +141,7 @@ class BinarySphericalQuantizer(nn.Module):
             else:
                 p = torch.sigmoid(-4 * z * self.inv_temperature)
             prob = torch.stack([p, 1 - p], dim=-1)
-            per_sample_entropy = self.get_entropy(prob, dim=-1, normalize=False).sum(dim=-1).mean()
-        else:
-            per_sample_entropy = self.get_entropy(prob, dim=-1, normalize=False).sum(dim=-1).mean()
-
+        per_sample_entropy = self.get_entropy(prob, dim=-1, normalize=False).sum(dim=-1).mean()
         # macro average of the probability of each subgroup
         avg_prob = reduce(prob, '... g d ->g d', 'mean')
         codebook_entropy = self.get_entropy(avg_prob, dim=-1, normalize=False)
@@ -198,8 +193,7 @@ class BinarySphericalQuantizer(nn.Module):
             probs = (count + eps) / (count + eps).sum(dim=dim, keepdim=True)
         else:
             probs = count
-        H = -(probs * torch.log(probs + 1e-8)).sum(dim=dim)
-        return H
+        return -(probs * torch.log(probs + 1e-8)).sum(dim=dim)
 
     def get_group_codebook_entry(self, group_indices):
         z_q = self.group_indexes_to_codes(group_indices)
@@ -434,7 +428,7 @@ class HierarchicalEmbedding(nn.Module):
             - torch.Tensor: composite token IDs of shape [batch_size, seq_len], which will be split into (s1_ids, s2_ids) internally.
         Output: [batch_size, seq_len, d_model]
         """
-        if isinstance(token_ids, tuple) or isinstance(token_ids, list):
+        if isinstance(token_ids, (tuple, list)):
             s1_ids, s2_ids = token_ids
         else:
             s1_ids, s2_ids = self.split_token(token_ids, self.s2_bits)
@@ -543,7 +537,7 @@ class TemporalEmbedding(nn.Module):
         day_size = 32
         month_size = 13
 
-        Embed = FixedEmbedding if not learn_pe else nn.Embedding
+        Embed = nn.Embedding if learn_pe else FixedEmbedding
         self.minute_embed = Embed(minute_size, d_model)
         self.hour_embed = Embed(hour_size, d_model)
         self.weekday_embed = Embed(weekday_size, d_model)

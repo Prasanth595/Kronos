@@ -48,13 +48,13 @@ def format_time(seconds: float) -> str:
 
 def setup_logging(exp_name: str, log_dir: str, rank: int = 0) -> logging.Logger:
     os.makedirs(log_dir, exist_ok=True)
-    
+
     logger = logging.getLogger(f"tokenizer_training_rank_{rank}")
     logger.setLevel(logging.INFO)
-    
+
     if logger.handlers:
         return logger
-    
+
     log_file = os.path.join(log_dir, f"tokenizer_training_rank_{rank}.log")
     file_handler = RotatingFileHandler(
         log_file, 
@@ -63,12 +63,12 @@ def setup_logging(exp_name: str, log_dir: str, rank: int = 0) -> logging.Logger:
         encoding='utf-8'
     )
     file_handler.setLevel(logging.INFO)
-    
+
     console_handler = None
     if rank == 0:
         console_handler = logging.StreamHandler()
         console_handler.setLevel(logging.INFO)
-    
+
     formatter = logging.Formatter(
         '%(asctime)s - %(name)s - %(levelname)s - %(message)s',
         datefmt='%Y-%m-%d %H:%M:%S'
@@ -76,17 +76,17 @@ def setup_logging(exp_name: str, log_dir: str, rank: int = 0) -> logging.Logger:
     file_handler.setFormatter(formatter)
     if console_handler is not None:
         console_handler.setFormatter(formatter)
-    
+
     logger.addHandler(file_handler)
     if console_handler is not None:
         logger.addHandler(console_handler)
-    
-    logger.info(f"=== Tokenizer Training Started ===")
+
+    logger.info("=== Tokenizer Training Started ===")
     logger.info(f"Experiment Name: {exp_name}")
     logger.info(f"Log Directory: {log_dir}")
     logger.info(f"Rank: {rank}")
     logger.info(f"Timestamp: {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
-    
+
     return logger
 
 
@@ -181,71 +181,11 @@ def train_tokenizer(model, device, config, save_dir, logger):
     accumulation_steps = getattr(config, 'accumulation_steps', 1)
     
     for epoch in range(config.tokenizer_epochs):
-        epoch_start_time = time.time()
-        model.train()
-        
-        train_dataset.set_epoch_seed(epoch * 10000)
-        val_dataset.set_epoch_seed(0)
-        if train_sampler is not None:
-            train_sampler.set_epoch(epoch)
-        
-        for batch_idx, (ori_batch_x, _) in enumerate(train_loader):
-            ori_batch_x = ori_batch_x.squeeze(0).to(device, non_blocking=True)
-            
-            current_batch_total_loss = 0.0
-            for j in range(accumulation_steps):
-                start_idx = j * (ori_batch_x.shape[0] // accumulation_steps)
-                end_idx = (j + 1) * (ori_batch_x.shape[0] // accumulation_steps)
-                batch_x = ori_batch_x[start_idx:end_idx]
-                
-                zs, bsq_loss, _, _ = (model.module if use_ddp else model)(batch_x)
-                z_pre, z = zs
-                
-                recon_loss_pre = F.mse_loss(z_pre, batch_x)
-                recon_loss_all = F.mse_loss(z, batch_x)
-                recon_loss = recon_loss_pre + recon_loss_all
-                loss = (recon_loss + bsq_loss) / 2
-                
-                loss_scaled = loss / accumulation_steps
-                current_batch_total_loss += loss.item()
-                loss_scaled.backward()
-            
-            torch.nn.utils.clip_grad_norm_((model.module if use_ddp else model).parameters(), max_norm=2.0)
-            optimizer.step()
-            scheduler.step()
-            optimizer.zero_grad()
-            
-            if (batch_idx_global + 1) % config.log_interval == 0:
-                avg_loss = current_batch_total_loss / accumulation_steps
-                lr = optimizer.param_groups[0]["lr"]
-                log_msg = (f"[Epoch {epoch+1}/{config.tokenizer_epochs}, Step {batch_idx+1}/{len(train_loader)}] "
-                          f"LR: {lr:.6f}, Loss: {avg_loss:.4f}")
-                logger.info(log_msg)
-                if rank == 0:
-                    print(log_msg)
-                
-                detail_msg = (f"  - VQ Loss: {bsq_loss.item():.4f}\n"
-                            f"  - Recon Loss Pre: {recon_loss_pre.item():.4f}\n"
-                            f"  - Recon Loss All: {recon_loss_all.item():.4f}")
-                logger.info(detail_msg)
-                if rank == 0:
-                    print(detail_msg)
-            
-            batch_idx_global += 1
-        
-        model.eval()
-        tot_val_loss_sum_rank = 0.0
-        val_sample_count_rank = 0
-        
-        with torch.no_grad():
-            for ori_batch_x, _ in val_loader:
-                ori_batch_x = ori_batch_x.squeeze(0).to(device, non_blocking=True)
-                zs, _, _, _ = (model.module if use_ddp else model)(ori_batch_x)
-                _, z = zs
-                val_loss_item = F.mse_loss(z, ori_batch_x)
-                
-                tot_val_loss_sum_rank += val_loss_item.item() * ori_batch_x.size(0)
-                val_sample_count_rank += ori_batch_x.size(0)
+        epoch_start_time = _prepare_epoch(model, train_dataset, val_dataset, train_sampler, epoch)
+        batch_idx_global = _train_tokenizer_one_epoch(
+            model, train_loader, optimizer, scheduler, device, config,
+            use_ddp, rank, epoch, batch_idx_global, accumulation_steps, logger)
+        tot_val_loss_sum_rank, val_sample_count_rank = _validate_tokenizer(model, val_loader, device, use_ddp)
         
         if use_ddp:
             tensor_sum = torch.tensor([tot_val_loss_sum_rank, val_sample_count_rank], dtype=torch.float64, device=device)
@@ -256,50 +196,150 @@ def train_tokenizer(model, device, config, save_dir, logger):
         else:
             avg_val_loss = tot_val_loss_sum_rank / val_sample_count_rank if val_sample_count_rank > 0 else 0
         
-        epoch_time = time.time() - epoch_start_time
-        epoch_summary = (f"\n--- Epoch {epoch+1}/{config.tokenizer_epochs} Summary ---\n"
-                       f"Validation Loss: {avg_val_loss:.4f}\n"
-                       f"Epoch Time: {format_time(epoch_time)}\n"
-                       f"Total Training Time: {format_time(time.time() - epoch_start_time)}\n")
-        logger.info(epoch_summary)
-        if rank == 0:
-            print(epoch_summary)
-        
-        if avg_val_loss < best_val_loss:
-            best_val_loss = avg_val_loss
-            if rank == 0:
-                model_save_path = os.path.join(save_dir, "best_model")
-                os.makedirs(model_save_path, exist_ok=True)
-                (model.module if use_ddp else model).save_pretrained(model_save_path)
-                save_msg = f"Best model saved to: {model_save_path} (validation loss: {best_val_loss:.4f})"
-                logger.info(save_msg)
-                print(save_msg)
+        _log_epoch_summary(logger, rank, epoch, config, avg_val_loss, epoch_start_time)
+        best_val_loss = _save_best_if_improved(
+            model, use_ddp, rank, save_dir, avg_val_loss, best_val_loss, logger)
     
     return best_val_loss
 
 
+def _prepare_epoch(model, train_dataset, val_dataset, train_sampler, epoch):
+    epoch_start_time = time.time()
+    model.train()
+    
+    train_dataset.set_epoch_seed(epoch * 10000)
+    val_dataset.set_epoch_seed(0)
+    if train_sampler is not None:
+        train_sampler.set_epoch(epoch)
+    return epoch_start_time
+
+
+def _train_tokenizer_one_epoch(model, train_loader, optimizer, scheduler, device, config,
+                               use_ddp, rank, epoch, batch_idx_global, accumulation_steps, logger):
+    for batch_idx, (ori_batch_x, _) in enumerate(train_loader):
+        ori_batch_x = ori_batch_x.squeeze(0).to(device, non_blocking=True)
+        
+        current_batch_total_loss, bsq_loss, recon_loss_pre, recon_loss_all = _accumulate_gradients(
+            model, ori_batch_x, accumulation_steps, use_ddp)
+        
+        torch.nn.utils.clip_grad_norm_((model.module if use_ddp else model).parameters(), max_norm=2.0)
+        optimizer.step()
+        scheduler.step()
+        optimizer.zero_grad()
+        
+        if (batch_idx_global + 1) % config.log_interval == 0:
+            avg_loss = current_batch_total_loss / accumulation_steps
+            lr = optimizer.param_groups[0]["lr"]
+            log_msg = (f"[Epoch {epoch+1}/{config.tokenizer_epochs}, Step {batch_idx+1}/{len(train_loader)}] "
+                      f"LR: {lr:.6f}, Loss: {avg_loss:.4f}")
+            logger.info(log_msg)
+            if rank == 0:
+                print(log_msg)
+            
+            detail_msg = (f"  - VQ Loss: {bsq_loss.item():.4f}\n"
+                        f"  - Recon Loss Pre: {recon_loss_pre.item():.4f}\n"
+                        f"  - Recon Loss All: {recon_loss_all.item():.4f}")
+            logger.info(detail_msg)
+            if rank == 0:
+                print(detail_msg)
+        
+        batch_idx_global += 1
+    
+    return batch_idx_global
+
+
+def _accumulate_gradients(model, ori_batch_x, accumulation_steps, use_ddp):
+    current_batch_total_loss = 0.0
+    bsq_loss = recon_loss_pre = recon_loss_all = None
+    for j in range(accumulation_steps):
+        start_idx = j * (ori_batch_x.shape[0] // accumulation_steps)
+        end_idx = (j + 1) * (ori_batch_x.shape[0] // accumulation_steps)
+        batch_x = ori_batch_x[start_idx:end_idx]
+        
+        zs, bsq_loss, _, _ = (model.module if use_ddp else model)(batch_x)
+        z_pre, z = zs
+        
+        recon_loss_pre = F.mse_loss(z_pre, batch_x)
+        recon_loss_all = F.mse_loss(z, batch_x)
+        recon_loss = recon_loss_pre + recon_loss_all
+        loss = (recon_loss + bsq_loss) / 2
+        
+        loss_scaled = loss / accumulation_steps
+        current_batch_total_loss += loss.item()
+        loss_scaled.backward()
+    return current_batch_total_loss, bsq_loss, recon_loss_pre, recon_loss_all
+
+
+def _validate_tokenizer(model, val_loader, device, use_ddp):
+    model.eval()
+    tot_val_loss_sum_rank = 0.0
+    val_sample_count_rank = 0
+    
+    with torch.no_grad():
+        for ori_batch_x, _ in val_loader:
+            ori_batch_x = ori_batch_x.squeeze(0).to(device, non_blocking=True)
+            zs, _, _, _ = (model.module if use_ddp else model)(ori_batch_x)
+            _, z = zs
+            val_loss_item = F.mse_loss(z, ori_batch_x)
+            
+            tot_val_loss_sum_rank += val_loss_item.item() * ori_batch_x.size(0)
+            val_sample_count_rank += ori_batch_x.size(0)
+    
+    return tot_val_loss_sum_rank, val_sample_count_rank
+
+
+def _log_epoch_summary(logger, rank, epoch, config, avg_val_loss, epoch_start_time):
+    epoch_time = time.time() - epoch_start_time
+    epoch_summary = (f"\n--- Epoch {epoch+1}/{config.tokenizer_epochs} Summary ---\n"
+                   f"Validation Loss: {avg_val_loss:.4f}\n"
+                   f"Epoch Time: {format_time(epoch_time)}\n"
+                   f"Total Training Time: {format_time(time.time() - epoch_start_time)}\n")
+    logger.info(epoch_summary)
+    if rank == 0:
+        print(epoch_summary)
+
+
+def _save_best_if_improved(model, use_ddp, rank, save_dir, avg_val_loss, best_val_loss, logger):
+    if avg_val_loss < best_val_loss:
+        best_val_loss = avg_val_loss
+        if rank == 0:
+            model_save_path = os.path.join(save_dir, "best_model")
+            os.makedirs(model_save_path, exist_ok=True)
+            (model.module if use_ddp else model).save_pretrained(model_save_path)
+            save_msg = f"Best model saved to: {model_save_path} (validation loss: {best_val_loss:.4f})"
+            logger.info(save_msg)
+            print(save_msg)
+    return best_val_loss
+
+
+
+
+
+
+
+
 def main():
     import argparse
-    
+
     parser = argparse.ArgumentParser(description='Kronos Tokenizer Fine-tuning Training')
     parser.add_argument('--config', type=str, default='config.yaml', 
                        help='Configuration file path (default: config.yaml)')
     args = parser.parse_args()
-    
+
     config = CustomFinetuneConfig(args.config)
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     print(f"Using device: {device}")
-    
+
     config = CustomFinetuneConfig(args.config)
-    
+
     os.makedirs(config.tokenizer_save_path, exist_ok=True)
-    
+
     log_dir = os.path.join(config.base_save_path, "logs")
     logger = setup_logging(config.exp_name, log_dir, 0)
-    
+
     set_seed(config.seed)
-    
+
     # 加载预训练tokenizer
     if getattr(config, 'pre_trained_tokenizer', True):
         logger.info("Loading pretrained tokenizer...")
@@ -330,11 +370,11 @@ def main():
             group_size=arch.get('group_size', 4)
         )
     tokenizer = tokenizer.to(device)
-    
+
     model_size = get_model_size(tokenizer)
     logger.info(f"Tokenizer parameters: {model_size}")
     print(f"Tokenizer parameters: {model_size}")
-    
+
     logger.info("=== Training Configuration ===")
     logger.info(f"Data path: {config.data_path}")
     logger.info(f"Lookback window: {config.lookback_window}")
@@ -343,12 +383,12 @@ def main():
     logger.info(f"Learning rate: {config.tokenizer_learning_rate}")
     logger.info(f"Training epochs: {config.tokenizer_epochs}")
     logger.info(f"Device: {device}")
-    logger.info(f"Distributed training: False")
-    
+    logger.info("Distributed training: False")
+
     logger.info("Starting tokenizer fine-tuning training...")
     print("Starting tokenizer fine-tuning training...")
     best_val_loss = train_tokenizer(tokenizer, device, config, config.tokenizer_save_path, logger)
-    
+
     final_msg = f"Tokenizer training completed! Best validation loss: {best_val_loss:.4f}\nModel saved to: {config.tokenizer_save_path}"
     logger.info(final_msg)
     print(final_msg)
