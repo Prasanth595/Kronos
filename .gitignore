@@ -57,6 +57,7 @@ Desktop.ini
 
 # Logs
 *.log
+*.log.err
 logs/
 
 # Environment
@@ -73,4 +74,24 @@ venv.bak/
 *.temp
 temp/
 tmp/
+.codex-deps/
+.codex-tmp/
 .python-version
+
+# Local worktrees
+.worktrees/
+worktrees/
+
+# Scanner runtime artifacts
+scanner/reports/*.json
+scanner/reports/*.jsonl
+scanner/reports/evidence/
+scanner/tuning/*.json
+webui/prediction_results/
+
+scanner/reports/daily_brief.md
+
+# Potter v3 research bar cache (rebuilt from Alpaca on demand)
+scanner/reports/potter_v3_cache/
+scanner/reports/potter_v3/
+scanner/research/experiments/**/bars_cache.pkl
