@@ -344,14 +344,24 @@ def top_k_top_p_filtering(
         Make sure we keep at least min_tokens_to_keep per batch example in the output
     From: https://gist.github.com/thomwolf/1a5a29f6962089e871b94cbd09daf317
     """
-    if top_k > 0:
+    if top_k is not None:
+        top_k = int(top_k)
+        if top_k < 0:
+            raise ValueError(f"top_k must be non-negative, got {top_k}.")
+
+    if top_p is not None:
+        top_p = float(top_p)
+        if not 0.0 <= top_p <= 1.0:
+            raise ValueError(f"top_p must be in [0, 1], got {top_p}.")
+
+    if top_k is not None and top_k > 0:
         top_k = min(max(top_k, min_tokens_to_keep), logits.size(-1))  # Safety check
         # Remove all tokens with a probability less than the last token of the top-k
         indices_to_remove = logits < torch.topk(logits, top_k)[0][..., -1, None]
         logits[indices_to_remove] = filter_value
         return logits
 
-    if top_p < 1.0:
+    if top_p is not None and top_p < 1.0:
         sorted_logits, sorted_indices = torch.sort(logits, descending=True)
         cumulative_probs = torch.cumsum(F.softmax(sorted_logits, dim=-1), dim=-1)
 
@@ -369,11 +379,17 @@ def top_k_top_p_filtering(
         logits[indices_to_remove] = filter_value
         return logits
 
+    return logits
+
 
 def sample_from_logits(logits, temperature=1.0, top_k=None, top_p=None, sample_logits=True):
+    temperature = float(temperature)
+    if temperature <= 0:
+        raise ValueError(f"temperature must be positive, got {temperature}.")
+
     logits = logits / temperature
     if top_k is not None or top_p is not None:
-        if top_k > 0 or top_p < 1.0:
+        if (top_k is not None and top_k > 0) or (top_p is not None and top_p < 1.0):
             logits = top_k_top_p_filtering(logits, top_k=top_k, top_p=top_p)
 
     probs = F.softmax(logits, dim=-1)
@@ -520,9 +536,14 @@ class KronosPredictor:
 
         if not isinstance(df, pd.DataFrame):
             raise ValueError("Input must be a pandas DataFrame.")
-
+        if pred_len <= 0:
+            raise ValueError(f"pred_len must be positive, got {pred_len}.")
         if not all(col in df.columns for col in self.price_cols):
             raise ValueError(f"Price columns {self.price_cols} not found in DataFrame.")
+        if len(df) != len(x_timestamp):
+            raise ValueError(f"DataFrame length ({len(df)}) does not match x_timestamp length ({len(x_timestamp)}).")
+        if len(y_timestamp) != pred_len:
+            raise ValueError(f"y_timestamp length ({len(y_timestamp)}) must equal pred_len ({pred_len}).")
 
         df = df.copy()
         if self.vol_col not in df.columns:
@@ -598,8 +619,17 @@ class KronosPredictor:
             df = df_list[i]
             if not isinstance(df, pd.DataFrame):
                 raise ValueError(f"Input at index {i} is not a pandas DataFrame.")
+            if pred_len <= 0:
+                raise ValueError(f"pred_len must be positive, got {pred_len}.")
             if not all(col in df.columns for col in self.price_cols):
                 raise ValueError(f"DataFrame at index {i} is missing price columns {self.price_cols}.")
+
+            x_timestamp = x_timestamp_list[i]
+            y_timestamp = y_timestamp_list[i]
+            if len(df) != len(x_timestamp):
+                raise ValueError(f"DataFrame length at index {i} ({len(df)}) does not match x_timestamp length ({len(x_timestamp)}).")
+            if len(y_timestamp) != pred_len:
+                raise ValueError(f"y_timestamp length at index {i} ({len(y_timestamp)}) must equal pred_len={pred_len}.")
 
             df = df.copy()
             if self.vol_col not in df.columns:
@@ -610,9 +640,6 @@ class KronosPredictor:
 
             if df[self.price_cols + [self.vol_col, self.amt_vol]].isnull().values.any():
                 raise ValueError(f"DataFrame at index {i} contains NaN values in price or volume columns.")
-
-            x_timestamp = x_timestamp_list[i]
-            y_timestamp = y_timestamp_list[i]
 
             x_time_df = calc_time_stamps(x_timestamp)
             y_time_df = calc_time_stamps(y_timestamp)
