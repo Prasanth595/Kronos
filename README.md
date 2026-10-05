@@ -212,6 +212,16 @@ Running this script will generate a plot comparing the ground truth data against
 </p>
 
 Additionally, we provide a script that makes predictions without Volume and Amount data, which can be found in [`examples/prediction_wo_vol_example.py`](examples/prediction_wo_vol_example.py).
+If you want to forecast assets available on Yahoo Finance (stocks, ETFs, crypto, ...) without preparing a CSV, [`examples/prediction_yfinance.py`](examples/prediction_yfinance.py) downloads the latest candles via [yfinance](https://github.com/ranaroussi/yfinance), runs several independent predictions, and plots the 5-95% quantile band together with the median path:
+
+```bash
+# 400 hourly candles, 20 independent runs by default
+python examples/prediction_yfinance.py BTC-USD
+
+# daily candles for a stock, 50 runs
+python examples/prediction_yfinance.py AAPL --interval 1d --runs 50
+```
+
 
 
 ## 🔧 Finetuning on Your Own Data (A-Share Market Example)
