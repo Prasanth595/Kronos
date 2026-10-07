@@ -349,7 +349,6 @@ def top_k_top_p_filtering(
         # Remove all tokens with a probability less than the last token of the top-k
         indices_to_remove = logits < torch.topk(logits, top_k)[0][..., -1, None]
         logits[indices_to_remove] = filter_value
-        return logits
 
     if top_p < 1.0:
         sorted_logits, sorted_indices = torch.sort(logits, descending=True)
@@ -367,7 +366,7 @@ def top_k_top_p_filtering(
         # scatter sorted tensors to original indexing
         indices_to_remove = sorted_indices_to_remove.scatter(1, sorted_indices, sorted_indices_to_remove)
         logits[indices_to_remove] = filter_value
-        return logits
+    return logits
 
 
 def sample_from_logits(logits, temperature=1.0, top_k=None, top_p=None, sample_logits=True):
@@ -527,9 +526,11 @@ class KronosPredictor:
         df = df.copy()
         if self.vol_col not in df.columns:
             df[self.vol_col] = 0.0  # Fill missing volume with zeros
-            df[self.amt_vol] = 0.0  # Fill missing amount with zeros
-        if self.amt_vol not in df.columns and self.vol_col in df.columns:
-            df[self.amt_vol] = df[self.vol_col] * df[self.price_cols].mean(axis=1)
+        if self.amt_vol not in df.columns:
+            if self.vol_col in df.columns:
+                df[self.amt_vol] = df[self.vol_col] * df[self.price_cols].mean(axis=1)
+            else:
+                df[self.amt_vol] = 0.0  # Fill missing amount with zeros
 
         if df[self.price_cols + [self.vol_col, self.amt_vol]].isnull().values.any():
             raise ValueError("Input DataFrame contains NaN values in price or volume columns.")
@@ -604,9 +605,11 @@ class KronosPredictor:
             df = df.copy()
             if self.vol_col not in df.columns:
                 df[self.vol_col] = 0.0
-                df[self.amt_vol] = 0.0
-            if self.amt_vol not in df.columns and self.vol_col in df.columns:
-                df[self.amt_vol] = df[self.vol_col] * df[self.price_cols].mean(axis=1)
+            if self.amt_vol not in df.columns:
+                if self.vol_col in df.columns:
+                    df[self.amt_vol] = df[self.vol_col] * df[self.price_cols].mean(axis=1)
+                else:
+                    df[self.amt_vol] = 0.0
 
             if df[self.price_cols + [self.vol_col, self.amt_vol]].isnull().values.any():
                 raise ValueError(f"DataFrame at index {i} contains NaN values in price or volume columns.")
