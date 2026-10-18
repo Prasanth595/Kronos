@@ -287,17 +287,21 @@ class RotaryPositionalEmbedding(nn.Module):
         inv_freq = 1.0 / (10000 ** (torch.arange(0, dim, 2).float() / dim))
         self.register_buffer("inv_freq", inv_freq)
         self.seq_len_cached = None
+        self.device_cached = None
+        self.dtype_cached = None
         self.cos_cached = None
         self.sin_cached = None
 
     def _update_cos_sin_cache(self, x, seq_len):
-        if seq_len != self.seq_len_cached:
+        if seq_len != self.seq_len_cached or x.device != self.device_cached or x.dtype != self.dtype_cached:
             self.seq_len_cached = seq_len
-            t = torch.arange(seq_len, device=x.device).type_as(self.inv_freq)
+            self.device_cached = x.device
+            self.dtype_cached = x.dtype
+            t = torch.arange(seq_len, device=x.device, dtype=self.inv_freq.dtype)
             freqs = torch.einsum('i,j->ij', t, self.inv_freq)
             emb = torch.cat((freqs, freqs), dim=-1).to(x.device)
-            self.cos_cached = emb.cos()[None, None, :, :]
-            self.sin_cached = emb.sin()[None, None, :, :]
+            self.cos_cached = emb.cos().to(x.dtype)[None, None, :, :]
+            self.sin_cached = emb.sin().to(x.dtype)[None, None, :, :]
         return self.cos_cached, self.sin_cached
 
     def forward(self, q, k):
